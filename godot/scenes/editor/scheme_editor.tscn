@@ -1,0 +1,78 @@
+[gd_scene format=3]
+
+[node name="EditorRoot" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Toolbar" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SchemeLabel" type="Label" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "方案："
+
+[node name="SchemeSelect" type="OptionButton" parent="Margin/VBox/Toolbar"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="LoadBtn" type="Button" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "载入"
+
+[node name="SaveBtn" type="Button" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "保存"
+
+[node name="ValidateBtn" type="Button" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "校验"
+
+[node name="MetaLabel" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "（未载入方案）"
+
+[node name="ParamsTitle" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+text = "参数（值可编辑，保存后写回方案文件）"
+
+[node name="ParamsScroll" type="ScrollContainer" parent="Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ParamsBox" type="VBoxContainer" parent="Margin/VBox/ParamsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="Placeholder" type="Label" parent="Margin/VBox/ParamsScroll/ParamsBox"]
+layout_mode = 2
+text = "数据源 / 派生 / 聚合 / 计算组 / 输出等编辑页：后续迭代（先实现参数编辑与保存）"
+modulate = Color(0.6, 0.6, 0.6, 1)
+
+[node name="Log" type="RichTextLabel" parent="Margin/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 120)
+bbcode_enabled = true
+scroll_following = true

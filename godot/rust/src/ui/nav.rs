@@ -1,5 +1,5 @@
 //! 页面路由：主场景（main.tscn）顶栏按钮 → 显示/切换功能页场景。
-//! 当前只有“运行台”页；新增页时在 events 加导航事件、在顶栏加按钮、在 spawn_<page> 加场景即可。
+//! 运行台 → scenes/run/run_console.tscn；方案编辑 → scenes/editor/scheme_editor.tscn。
 
 use bevy::ecs::observer::On;
 use bevy::prelude::{Commands, Component, Entity, Name, Query, Res, ResMut, Resource};
@@ -7,7 +7,12 @@ use godot::builtin::GString;
 use godot_bevy::prelude::{GodotNodeHandle, GodotScene, GodotSignals};
 use tracing::{info, warn};
 
-use super::events::{BrowseMonthClicked, MonthDirPicked, RunClicked, ShowRunPage, ValidateClicked};
+use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
+use super::events::{
+    BrowseMonthClicked, EditorLoadClicked, EditorSaveClicked, EditorSchemePicked,
+    EditorValidateClicked, MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage,
+    ValidateClicked,
+};
 use super::view::{UiHost, UiRefs};
 
 /// 内容宿主（main.tscn 的 Content 节点），页面场景都挂到这里。
@@ -18,30 +23,42 @@ pub struct ContentHost(pub Option<GodotNodeHandle>);
 #[derive(Resource, Default)]
 pub struct ActivePage(pub Option<Entity>);
 
-/// 页面实体标记。
+/// 页面实体标记（路由用）。
 #[derive(Component)]
 pub struct PageRoot;
 
 /// 启动：找到 Content 宿主、连好顶栏导航按钮，并进入默认页（运行台）。
+#[allow(clippy::too_many_arguments)]
 pub fn setup_router(
     mut commands: Commands,
     nodes: Query<(&GodotNodeHandle, &Name)>,
-    nav_signals: GodotSignals<ShowRunPage>,
+    run_signals: GodotSignals<ShowRunPage>,
+    editor_signals: GodotSignals<ShowEditorPage>,
     mut content: ResMut<ContentHost>,
     mut active: ResMut<ActivePage>,
     mut refs: ResMut<UiRefs>,
+    mut editor_refs: ResMut<EditorRefs>,
+    mut editor_doc: ResMut<EditorDoc>,
+    mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
 ) {
     for (handle, name) in &nodes {
         match name.as_str() {
             "Content" => content.0 = Some(*handle),
             "RunNavBtn" => {
-                nav_signals.connect(*handle, "pressed", None, |_a, _n, _e| Some(ShowRunPage));
+                run_signals.connect(*handle, "pressed", None, |_a, _n, _e| Some(ShowRunPage));
+            }
+            "EditorNavBtn" => {
+                editor_signals.connect(*handle, "pressed", None, |_a, _n, _e| Some(ShowEditorPage));
             }
             _ => {}
         }
     }
     info!("路由初始化完成，进入默认页：运行台");
     refs.nodes = None;
+    editor_refs.nodes = None;
+    editor_doc.raw = None;
+    editor_doc.path = None;
+    param_rows.line_edits.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -58,6 +75,26 @@ pub fn on_show_run_page(
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
+/// 顶栏“方案编辑”被点击 → 显示方案编辑器页。
+pub fn on_show_editor_page(
+    _trigger: On<ShowEditorPage>,
+    mut commands: Commands,
+    content: Res<ContentHost>,
+    mut active: ResMut<ActivePage>,
+    mut editor_refs: ResMut<EditorRefs>,
+    mut editor_doc: ResMut<EditorDoc>,
+    mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
+) {
+    info!("导航：方案编辑");
+    editor_refs.nodes = None;
+    editor_doc.path = None;
+    editor_doc.raw = None;
+    editor_doc.param_names.clear();
+    editor_doc.param_types.clear();
+    param_rows.line_edits.clear();
+    spawn_editor_page(&mut commands, content.0, &mut active);
+}
+
 fn spawn_run_page(commands: &mut Commands, host: Option<GodotNodeHandle>, active: &mut ActivePage) {
     let Some(host) = host else {
         warn!("找不到 Content 宿主，无法挂载运行台页");
@@ -68,7 +105,6 @@ fn spawn_run_page(commands: &mut Commands, host: Option<GodotNodeHandle>, active
     }
     let scene = GodotScene::from_path("res://scenes/run/run_console.tscn")
         .with_parent(host)
-        // 运行台页内按钮/对话框信号
         .with_signal_connection(
             "Margin/VBox/ActionRow/ValidateBtn",
             "pressed",
@@ -98,5 +134,51 @@ fn spawn_run_page(commands: &mut Commands, host: Option<GodotNodeHandle>, active
             Some(MonthDirPicked { dir })
         });
     let entity = commands.spawn((UiHost, PageRoot, scene)).id();
+    active.0 = Some(entity);
+}
+
+fn spawn_editor_page(
+    commands: &mut Commands,
+    host: Option<GodotNodeHandle>,
+    active: &mut ActivePage,
+) {
+    let Some(host) = host else {
+        warn!("找不到 Content 宿主，无法挂载方案编辑页");
+        return;
+    };
+    if let Some(entity) = active.0.take() {
+        commands.entity(entity).despawn();
+    }
+    let scene = GodotScene::from_path("res://scenes/editor/scheme_editor.tscn")
+        .with_parent(host)
+        .with_signal_connection(
+            "Margin/VBox/Toolbar/SchemeSelect",
+            "item_selected",
+            |args, _node, _entity| {
+                let index = args
+                    .first()
+                    .and_then(|v| v.try_to::<i64>().ok())
+                    .unwrap_or_default();
+                Some(EditorSchemePicked {
+                    index: index as i32,
+                })
+            },
+        )
+        .with_signal_connection(
+            "Margin/VBox/Toolbar/LoadBtn",
+            "pressed",
+            |_args, _node, _entity| Some(EditorLoadClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Toolbar/SaveBtn",
+            "pressed",
+            |_args, _node, _entity| Some(EditorSaveClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Toolbar/ValidateBtn",
+            "pressed",
+            |_args, _node, _entity| Some(EditorValidateClicked),
+        );
+    let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);
 }

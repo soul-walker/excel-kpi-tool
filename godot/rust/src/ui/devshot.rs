@@ -1,6 +1,6 @@
 //! 开发自检：设置 KPI_SHOT=1 时，自动点按钮并把界面截图到 target/ui-shot.png 后退出。
 
-use bevy::prelude::{Local, Res};
+use bevy::prelude::{Local, Name, Query, Res};
 use godot::classes::{Button, Control, ProjectSettings};
 use godot::obj::Singleton;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle};
@@ -23,12 +23,23 @@ fn click_button(
     }
 }
 
-pub fn dev_shot_system(mut frame: Local<u32>, refs: Res<UiRefs>, mut godot: GodotAccess) {
+pub fn dev_shot_system(
+    mut frame: Local<u32>,
+    refs: Res<UiRefs>,
+    scene_nodes: Query<(&GodotNodeHandle, &Name)>,
+    mut godot: GodotAccess,
+) {
     if std::env::var("KPI_SHOT").ok().as_deref() != Some("1") {
         return;
     }
     *frame += 1;
 
+    let find = |name: &str| {
+        scene_nodes
+            .iter()
+            .find(|(_, n)| n.as_str() == name)
+            .map(|(h, _)| *h)
+    };
     let nodes = refs.nodes.as_ref();
     click_button(
         30,
@@ -38,9 +49,11 @@ pub fn dev_shot_system(mut frame: Local<u32>, refs: Res<UiRefs>, mut godot: Godo
         &mut godot,
     );
     click_button(60, *frame, nodes.map(|n| n.dry_btn), "Dry-run", &mut godot);
+    // 切到方案编辑器页（自动载入默认方案、渲染参数行）
+    click_button(90, *frame, find("EditorNavBtn"), "切到方案编辑", &mut godot);
 
-    if *frame == 120
-        && let Some(handle) = nodes.map(|n| n.validate_btn)
+    if *frame == 200
+        && let Some(handle) = find("AppTitle")
     {
         info!("KPI_SHOT: 截图并退出");
         let control = godot.get::<Control>(handle);

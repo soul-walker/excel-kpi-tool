@@ -25,3 +25,25 @@ pub(crate) struct MonthDirPicked {
 /// 顶栏“运行台”导航。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct ShowRunPage;
+
+/// 顶栏“方案编辑”导航。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ShowEditorPage;
+
+/// 编辑器：方案下拉切换（参数为被选项序号）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct EditorSchemePicked {
+    pub index: i32,
+}
+
+/// 编辑器：“载入”按钮。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct EditorLoadClicked;
+
+/// 编辑器：“保存”按钮。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct EditorSaveClicked;
+
+/// 编辑器：“校验”按钮。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct EditorValidateClicked;

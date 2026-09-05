@@ -33,6 +33,10 @@ text = "运行台"
 toggle_mode = true
 button_pressed = true
 
+[node name="EditorNavBtn" type="Button" parent="Shell/NavBar/NavHBox"]
+layout_mode = 2
+text = "方案编辑"
+
 [node name="Content" type="Control" parent="Shell"]
 layout_mode = 2
 size_flags_vertical = 3
