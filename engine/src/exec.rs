@@ -31,7 +31,11 @@ pub struct DerivedTable {
 
 /// 把方案里的 `{monthDir}` 绑定为实际目录。
 pub fn resolve_file(pattern: &str, dir: &Path) -> PathBuf {
-    dir.join(pattern.replace("{monthDir}", "."))
+    // 前缀形式 `{monthDir}/xxx` 直接剥掉；兜底把其它位置的 `{monthDir}` 换成 "."。
+    let rel = pattern
+        .replacen("{monthDir}/", "", 1)
+        .replace("{monthDir}", ".");
+    dir.join(rel)
 }
 
 /// 运行一个方案的 sources + derived 阶段。
