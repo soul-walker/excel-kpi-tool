@@ -1150,4 +1150,105 @@ mod tests {
         let _ = std::fs::remove_file(&out_path);
         assert_eq!(diffs, 0, "与 golden 仍有 {diffs} 个差异单元格");
     }
+
+    /// 读取补课时文件：按表头定位 姓名/节数/费用 列，返回 姓名 → (节数, 费用)。
+    fn read_bukeshi_by_name(path: &Path) -> std::collections::HashMap<String, (f64, f64)> {
+        use calamine::{Data, Reader};
+        let mut wb = calamine::open_workbook_auto(path).expect("打开补课时文件");
+        let range = wb.worksheet_range("替上课补课时").expect("读 sheet");
+        let (rows, cols) = range.get_size();
+        let mut col_of = std::collections::HashMap::new();
+        for c in 0..cols {
+            if let Some(Data::String(s)) = range.get_value((0, c as u32)) {
+                col_of.insert(s.clone(), c as u32);
+            }
+        }
+        let to_f = |d: Option<&Data>| -> f64 {
+            match d {
+                Some(Data::Int(i)) => *i as f64,
+                Some(Data::Float(f)) => *f,
+                _ => 0.0,
+            }
+        };
+        let mut out = std::collections::HashMap::new();
+        for r in 1..rows {
+            if let Some(Data::String(name)) =
+                range.get_value((r as u32, *col_of.get("姓名").expect("无姓名列")))
+            {
+                let jie = to_f(range.get_value((r as u32, *col_of.get("节数").expect("无节数列"))));
+                let fee = to_f(range.get_value((r as u32, *col_of.get("费用").expect("无费用列"))));
+                out.insert(name.clone(), (jie, fee));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn bukeshi_new_file_matches_golden() {
+        use crate::scheme::{NewColumn, NewFileOutput, OutputKind, OutputSpec};
+        let scheme_path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../schemes/高中月绩效复刻.json"
+        ));
+        let raw = std::fs::read_to_string(scheme_path).expect("读复刻方案失败");
+        let mut v = crate::scheme::VersionedScheme::from_json_str(&raw).expect("复刻方案解析失败");
+        v.scheme.outputs.push(OutputSpec {
+            id: "补课时新表".into(),
+            kind: OutputKind::NewFile(NewFileOutput {
+                file: "{monthDir}/补课时.xlsx".into(),
+                from: "bukesh".into(),
+                sheet: "替上课补课时".into(),
+                columns: vec![
+                    NewColumn {
+                        header: "姓名".into(),
+                        field: "姓名".into(),
+                    },
+                    NewColumn {
+                        header: "节数".into(),
+                        field: "节数".into(),
+                    },
+                    NewColumn {
+                        header: "费用".into(),
+                        field: "费用".into(),
+                    },
+                ],
+            }),
+        });
+
+        let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/2023-09"));
+        let run = run_scheme(&v.scheme, dir).expect("执行失败");
+        let table = run
+            .derived_tables
+            .get("bukesh")
+            .expect("应有 bukesh 派生表");
+        let out_path =
+            std::env::temp_dir().join(format!("bukeshi-repl-{}.xlsx", std::process::id()));
+        let spec = v
+            .scheme
+            .outputs
+            .iter()
+            .find(|o| o.id == "补课时新表")
+            .map(|o| match &o.kind {
+                OutputKind::NewFile(n) => n,
+                _ => unreachable!(),
+            })
+            .expect("应有新文件输出");
+        crate::writer::write_new_file(&out_path, spec, table).expect("写新文件失败");
+
+        let golden = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../testdata/2023-09-golden/bukeshi/补课时.xlsx"
+        ));
+        let got = read_bukeshi_by_name(&out_path);
+        let want = read_bukeshi_by_name(golden);
+        let _ = std::fs::remove_file(&out_path);
+        assert_eq!(got.len(), want.len(), "人数不一致");
+        for (name, (gj, gf)) in &got {
+            let (wj, wf) = want
+                .get(name)
+                .unwrap_or_else(|| panic!("golden 缺少 {name}"));
+            assert_eq!(gj, wj, "{name} 节数不一致");
+            assert_eq!(gf, wf, "{name} 费用不一致");
+        }
+    }
 }
