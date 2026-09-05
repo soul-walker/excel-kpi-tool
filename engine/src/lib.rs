@@ -13,6 +13,7 @@ pub mod scheme;
 pub mod table;
 pub mod template;
 pub mod workbook;
+pub mod writer;
 pub mod xmlpatch;
 
 pub use calc::{BinOp, Node, Row, Value, eval, eval_on_row, eval_rows, parse};
@@ -28,4 +29,5 @@ pub use scheme::{
 pub use table::{CellValue, Column, Table};
 pub use template::{SheetEdit, patch_workbook};
 pub use workbook::{UmyaWorkbook, WorkbookIO};
+pub use writer::write_new_file;
 pub use xmlpatch::patch_cells;

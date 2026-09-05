@@ -10,6 +10,7 @@ license = "MIT"
 # 版本 / features 统一在根 workspace.dependencies 管理（见仓库规范）
 bevy = { workspace = true }
 calamine = { workspace = true }
+rust_xlsxwriter = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -16,7 +16,7 @@ members = [
 [workspace.dependencies]
 anyhow = "1"
 bevy = { version = "0.18", default-features = false, features = ["bevy_state"] }
-calamine = "0.36.1"   # 只读 xlsx（候选 reader；见 M0 拆解 0.3 决策）
+calamine = "0.36.1"   # 只读 + 定位（模板/台账读取端，见 M0/M1 决策）
 clap = { version = "4.6", features = ["derive"] }
 godot = "0.4"
 godot-bevy = { version = "0.11.0" }
@@ -25,8 +25,9 @@ serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-umya-spreadsheet = "3.1.0"   # Spike 已发现 2.3.3 对含筛选定义名的模板解析 bug，升 3.x 验证
-zip = "8"                    # 用于读前归一化非标准 rels 绝对路径（见 engine/examples/spike_writeback.rs）
+umya-spreadsheet = "3.1.0"   # 仅用于能正确读取/新建的场景；模板回写已改用最小 XML patch
+rust_xlsxwriter = "0.99.0"  # 新文件输出（create-only，如 补课时.xlsx）
+zip = "8"                    # 模板回写：zip/XML 最小 patch（engine/src/template.rs）
 
 # 依赖 crate 的 debug 构建也做优化，加速游戏迭代
 [profile.dev.package."*"]
