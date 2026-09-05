@@ -6,6 +6,7 @@
 
 pub mod calc;
 pub mod error;
+pub mod exec;
 pub mod plugin;
 pub mod reader;
 pub mod scheme;
@@ -14,8 +15,9 @@ pub mod template;
 pub mod workbook;
 pub mod xmlpatch;
 
-pub use calc::{BinOp, Node, Row, Value, eval, eval_rows, parse};
+pub use calc::{BinOp, Node, Row, Value, eval, eval_on_row, eval_rows, parse};
 pub use error::{Error, Result};
+pub use exec::{DerivedTable, SchemeRun, compute_derived, resolve_file, run_scheme, table_to_rows};
 pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_key};
 pub use scheme::{
     AggregateSpec, ApplyMode, BlankBehavior, ColumnSpec, ColumnType, DerivedSpec, DuplicatePolicy,

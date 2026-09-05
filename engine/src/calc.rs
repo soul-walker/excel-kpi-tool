@@ -498,6 +498,11 @@ pub fn eval_rows(node: &Node, lookup: Lookup, rows: &[Row]) -> Result<Value, Str
     eval_core(node, lookup, Some(rows), None)
 }
 
+/// 在单行作用域内求值：顶层标识符优先解析为该行的列（行过滤/行字段）。
+pub fn eval_on_row(node: &Node, lookup: Lookup, row: &Row) -> Result<Value, String> {
+    eval_core(node, lookup, None, Some(row))
+}
+
 fn resolve_path(lookup: Lookup, row: Option<&Row>, p: &[String]) -> Value {
     if let Some(r) = row
         && p.len() == 1
