@@ -635,6 +635,24 @@ mod tests {
         v.scheme.ensure_valid().expect("ensure_valid 应通过");
     }
 
+    /// 绩效复刻方案（M1 全量字段链 + 特殊函数引用）应始终可解析且无 error。
+    #[test]
+    fn loads_replication_scheme_from_repo() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../schemes/高中月绩效复刻.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("schemes/高中月绩效复刻.json 应存在");
+        let v = VersionedScheme::from_json_str(&raw).expect("复刻方案应可解析");
+        let issues = v.scheme.validate();
+        let errors: Vec<_> = issues
+            .iter()
+            .filter(|i| i.severity == Severity::Error)
+            .map(|i| format!("{}: {}", i.location, i.message))
+            .collect();
+        assert!(errors.is_empty(), "复刻方案不应有 error: {errors:#?}");
+    }
+
     #[test]
     fn loads_sample_scheme_from_repo() {
         // schemes/ 下的样例方案应始终可解析且无 error（仓库内回归）。

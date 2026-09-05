@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "scheme": {
+    "name": "高中月绩效复刻（对齐 golden）",
+    "description": "M1 复刻方案：把 school-kpi 旧代码的绩效计算 1:1 表达为方案（含疑似 bug，如折扣 min() 取最后一个非零）。字段名=输出表头名；源/派生 id 为英文。LEAVE_DEDUCT/LEAVE_PENALTY/DISCOUNT 为引擎内置特殊函数（下一步实现），本文件先保证 schema 可解析可校验。",
+    "entity": { "key_field": "姓名", "normalize": ["去空白", "去换行"], "duplicate": "report" },
+    "parameters": [
+      { "name": "考勤奖", "label": "考勤奖", "value_type": "integer", "value": 100 },
+      { "name": "一般岗位奖", "label": "一般岗位奖", "value_type": "integer", "value": 50 },
+      { "name": "高三岗位奖", "label": "高三岗位奖", "value_type": "integer", "value": 60 },
+      { "name": "纯行政岗位奖", "label": "纯行政岗位奖", "value_type": "integer", "value": 40 },
+      { "name": "基础课时", "label": "基础课时", "value_type": "decimal", "value": 15.6 },
+      { "name": "课时费", "label": "课时费", "value_type": "decimal", "value": 1.5 },
+      { "name": "超课时费", "label": "超课时费", "value_type": "decimal", "value": 5 },
+      { "name": "事假单价", "label": "事假单价", "value_type": "decimal", "value": 20 },
+      { "name": "病假单价", "label": "病假单价", "value_type": "decimal", "value": 10 },
+      { "name": "折扣", "label": "折扣", "value_type": "decimal", "value": 0.2 },
+      { "name": "请假超过天数", "label": "请假超过天数", "value_type": "integer", "value": 20 }
+    ],
+    "sources": [
+      {
+        "id": "keshi",
+        "label": "课时",
+        "file": "{monthDir}/课时.xlsx",
+        "sheet": "课时",
+        "header_row": 1,
+        "parse": {},
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "总计", "alias": "课时", "value_type": "decimal", "required": true }
+        ]
+      },
+      {
+        "id": "gangwei",
+        "label": "岗位",
+        "file": "{monthDir}/岗位.xlsx",
+        "sheet": "Sheet1",
+        "header_row": 1,
+        "parse": {},
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "岗位奖", "alias": "岗位奖", "value_type": "integer" },
+          { "header": "教研组长", "alias": "教研组长", "value_type": "integer" },
+          { "header": "年级组长", "alias": "年级组长", "value_type": "integer" },
+          { "header": "行政后勤", "alias": "行政后勤", "value_type": "integer" },
+          { "header": "行、后", "alias": "行后", "value_type": "integer" }
+        ]
+      },
+      {
+        "id": "qingjia",
+        "label": "请假替上课",
+        "file": "{monthDir}/请假替上课.xlsx",
+        "sheet": "请假替上课",
+        "header_row": 1,
+        "parse": { "fill_down": ["姓名"], "continue_record_on": ["天数"] },
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "类型", "alias": "类型", "value_type": "text" },
+          { "header": "天数", "alias": "天数", "value_type": "decimal" },
+          { "header": "替上课老师", "alias": "替上课老师", "value_type": "text" },
+          { "header": "节数", "alias": "节数", "value_type": "integer" }
+        ]
+      },
+      {
+        "id": "zaodu",
+        "label": "早读",
+        "file": "{monthDir}/早读.xlsx",
+        "sheet": "早读",
+        "header_row": 1,
+        "parse": {},
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "小计", "alias": "小计", "value_type": "decimal" }
+        ]
+      },
+      {
+        "id": "weicanjia",
+        "label": "未参加升旗集会",
+        "file": "{monthDir}/未参加升旗、集会.xlsx",
+        "sheet": "Sheet1",
+        "header_row": 1,
+        "parse": {},
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "未参加升旗、集会", "alias": "扣款", "value_type": "decimal" }
+        ]
+      },
+      {
+        "id": "banzhuren",
+        "label": "班主任",
+        "file": "{monthDir}/班主任.xlsx",
+        "sheet": "Sheet1",
+        "header_row": 1,
+        "parse": {},
+        "columns": [
+          { "header": "班主任", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "应发", "alias": "应发", "value_type": "integer" }
+        ]
+      }
+    ],
+    "derived": [
+      {
+        "id": "bukesh",
+        "label": "补课时（按替课老师汇总，供绩效引用）",
+        "from": "qingjia",
+        "when": "替上课老师 != ''",
+        "map": { "姓名": "替上课老师", "节数": "节数" },
+        "group_by": "姓名",
+        "fields": [
+          { "name": "节数", "expr": "SUM(节数)" },
+          { "name": "费用", "expr": "节数 * 7" }
+        ]
+      }
+    ],
+    "aggregates": [
+      {
+        "id": "请假超总天数",
+        "from": "qingjia",
+        "group_by": "姓名",
+        "expr": "SUM(天数 WHERE 类型 != '公')"
+      },
+      {
+        "id": "请假超额",
+        "from": "qingjia",
+        "group_by": "姓名",
+        "expr": "请假超总天数 >= 参数.请假超过天数"
+      }
+    ],
+    "groups": [
+      {
+        "id": "fxp",
+        "name": "非校聘",
+        "match_sheet": "非校聘",
+        "fields": [
+          { "name": "课时S", "expr": "IF(请假超额, 0, keshi.课时 ?? 0)" },
+          { "name": "课时X", "expr": "IF(请假超额, 0, MAX(0, 课时S - 参数.基础课时))" },
+          { "name": "课时费S", "expr": "IF(请假超额, 0, 课时S * 参数.课时费)" },
+          { "name": "课时费X", "expr": "IF(请假超额, 0, 课时X * 参数.超课时费)" },
+          { "name": "课时周费", "expr": "课时费S + 课时费X" },
+          { "name": "课时月费", "expr": "课时周费 * 4" },
+          { "name": "考勤奖", "expr": "IF(请假超额, 0, 参数.考勤奖)" },
+          { "name": "岗位奖", "expr": "IF(请假超额, 0, gangwei.岗位奖 ?? 0)" },
+          { "name": "教研组长", "expr": "IF(请假超额, 0, gangwei.教研组长 ?? 0)" },
+          { "name": "年级组长", "expr": "IF(请假超额, 0, gangwei.年级组长 ?? 0)" },
+          { "name": "行政后勤", "expr": "IF(请假超额, 0, gangwei.行政后勤 ?? 0)" },
+          { "name": "行、后", "expr": "IF(请假超额, 0, gangwei.行后 ?? 0)" },
+          { "name": "扣课时", "expr": "LEAVE_DEDUCT(课时周费)" },
+          { "name": "补课时", "expr": "IF(请假超额, 0, bukesh.费用 ?? 0)" },
+          { "name": "请假", "expr": "LEAVE_PENALTY()" },
+          { "name": "未参加升旗、集会", "expr": "IF(请假超额, 0, weicanjia.扣款 ?? 0)" },
+          { "name": "早读", "expr": "zaodu.小计" },
+          { "name": "班主任", "expr": "IF(请假超额, 0, banzhuren.应发 ?? 0)" },
+          { "name": "折扣", "expr": "DISCOUNT(教研组长, 年级组长, 行政后勤, 班主任, 课时月费)" },
+          { "name": "合计1", "expr": "课时月费 + 考勤奖 + 岗位奖 + 扣课时 + 补课时 + 请假 + 未参加升旗、集会 + 早读 - 折扣" },
+          { "name": "合计2", "expr": "(班主任 + 教研组长 + 年级组长 + 行政后勤 + 行、后) * 0.4" },
+          { "name": "合计", "expr": "合计1 + 合计2" },
+          { "name": "上浮30%", "expr": "合计 * 1.3" },
+          { "name": "实际发放", "expr": "ROUND(上浮30%, 0)" }
+        ],
+        "overrides": []
+      },
+      {
+        "id": "xp",
+        "name": "校聘",
+        "match_sheet": "校聘",
+        "fields": [],
+        "overrides": [
+          { "name": "合计2", "expr": "(班主任 + 教研组长 + 年级组长 + 行政后勤 + 行、后) * 1" },
+          { "name": "上浮30%", "expr": null },
+          { "name": "实际发放", "expr": "ROUND(合计, 0)" }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "id": "jx",
+        "kind": {
+          "patch_template": {
+            "file": "{monthDir}/绩效.xlsx",
+            "apply": "inplace",
+            "backup": true,
+            "dry_run": true,
+            "row_key": "姓名",
+            "groups": [
+              { "group": "fxp", "sheet": "非校聘" },
+              { "group": "xp", "sheet": "校聘" }
+            ],
+            "columns": [
+              { "field": "课时S", "header": "课时S", "num_fmt": "0.00" },
+              { "field": "课时X", "header": "课时X", "num_fmt": "0.00" },
+              { "field": "课时费S", "header": "课时费S", "num_fmt": "0.00" },
+              { "field": "课时费X", "header": "课时费X", "num_fmt": "0.00" },
+              { "field": "课时周费", "header": "课时周费", "num_fmt": "0.00" },
+              { "field": "课时月费", "header": "课时月费", "num_fmt": "0.00" },
+              { "field": "考勤奖", "header": "考勤奖", "num_fmt": "0" },
+              { "field": "岗位奖", "header": "岗位奖", "num_fmt": "0" },
+              { "field": "教研组长", "header": "教研组长", "num_fmt": "0" },
+              { "field": "年级组长", "header": "年级组长", "num_fmt": "0" },
+              { "field": "行政后勤", "header": "行政后勤", "num_fmt": "0" },
+              { "field": "行、后", "header": "行、后", "num_fmt": "0" },
+              { "field": "扣课时", "header": "扣课时", "num_fmt": "0.00" },
+              { "field": "补课时", "header": "补课时", "num_fmt": "0.00" },
+              { "field": "请假", "header": "请假", "num_fmt": "0" },
+              { "field": "未参加升旗、集会", "header": "未参加升旗、集会", "num_fmt": "0" },
+              { "field": "早读", "header": "早读", "num_fmt": "0.00" },
+              { "field": "班主任", "header": "班主任", "num_fmt": "0" },
+              { "field": "折扣", "header": "折扣", "num_fmt": "0.00" },
+              { "field": "合计1", "header": "合计1", "num_fmt": "0.00" },
+              { "field": "合计2", "header": "合计2", "num_fmt": "0.00" },
+              { "field": "合计", "header": "合计", "num_fmt": "0.00" },
+              { "field": "上浮30%", "header": "上浮30%", "num_fmt": "0.00" },
+              { "field": "实际发放", "header": "实际发放", "num_fmt": "0" }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
