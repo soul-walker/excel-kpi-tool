@@ -57,6 +57,39 @@ layout_mode = 2
 autowrap_mode = 2
 text = "（未载入方案）"
 
+[node name="InfoBox" type="VBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NameRow" type="HBoxContainer" parent="Margin/VBox/InfoBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NameLabel" type="Label" parent="Margin/VBox/InfoBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(56, 0)
+text = "名称："
+
+[node name="NameEdit" type="LineEdit" parent="Margin/VBox/InfoBox/NameRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "方案名称（保存时作为文件名，如 绩效-2026-09）"
+tooltip_text = "保存时按此名称在 schemes/ 目录生成同名 .json 文件；改名保存将同时重命名文件"
+
+[node name="DescRow" type="HBoxContainer" parent="Margin/VBox/InfoBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DescLabel" type="Label" parent="Margin/VBox/InfoBox/DescRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(56, 0)
+text = "描述："
+
+[node name="DescEdit" type="LineEdit" parent="Margin/VBox/InfoBox/DescRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "用途 / 说明（可选）"
+
 [node name="Split" type="HSplitContainer" parent="Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -74,7 +107,7 @@ layout_mode = 2
 
 [node name="ParamsTitle" type="Label" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
 layout_mode = 2
-text = "参数（值可编辑，保存后写回方案文件）"
+text = "参数（名称 / 类型 / 值均可编辑，保存后写回）"
 size_flags_horizontal = 3
 
 [node name="AddParamBtn" type="Button" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
@@ -89,11 +122,6 @@ size_flags_vertical = 3
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 4
-
-[node name="Placeholder" type="Label" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll/ParamsBox"]
-layout_mode = 2
-text = "数据源 / 派生 / 聚合 / 计算组 / 输出等编辑页：后续迭代"
-modulate = Color(0.6, 0.6, 0.6, 1)
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

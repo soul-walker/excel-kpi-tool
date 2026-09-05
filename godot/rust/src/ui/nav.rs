@@ -56,9 +56,10 @@ pub fn setup_router(
     info!("路由初始化完成，进入默认页：运行台");
     refs.nodes = None;
     editor_refs.nodes = None;
-    editor_doc.raw = None;
     editor_doc.path = None;
-    param_rows.line_edits.clear();
+    editor_doc.base = None;
+    editor_doc.raw = None;
+    param_rows.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -88,10 +89,9 @@ pub fn on_show_editor_page(
     info!("导航：方案编辑");
     editor_refs.nodes = None;
     editor_doc.path = None;
+    editor_doc.base = None;
     editor_doc.raw = None;
-    editor_doc.param_names.clear();
-    editor_doc.param_types.clear();
-    param_rows.line_edits.clear();
+    param_rows.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
 

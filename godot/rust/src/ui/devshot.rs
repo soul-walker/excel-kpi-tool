@@ -1,11 +1,12 @@
 //! 开发自检：设置 KPI_SHOT=1 时，自动点按钮并把界面截图到 target/ui-shot.png 后退出。
 //!
 //! 时序（帧）：30 校验 → 60 dry-run → 90 切方案编辑页 →
-//! 140 新建方案 → 190/240 各新增一个参数 → 290 删除第 2 个参数 →
-//! 340 保存 → 400 截图退出。
+//! 120 新建方案 → 125 填名称/描述 → 130/140 新增两个参数 →
+//! 150 编辑第 1 行（名称=考勤分、类型=小数、值=99.5）→ 180 保存（改名落盘）
+//! → 260 截图退出。
 
 use bevy::prelude::{Local, Name, NonSend, Query, Res};
-use godot::classes::{Button, Control, ProjectSettings};
+use godot::classes::{Button, Control, LineEdit, ProjectSettings};
 use godot::obj::Singleton;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle};
 use tracing::{info, warn};
@@ -68,17 +69,43 @@ pub fn dev_shot_system(
     click_button(60, *frame, nodes.map(|n| n.dry_btn), "Dry-run", &mut godot);
     // 切到方案编辑器页（自动载入默认方案、渲染参数行）
     click_button(90, *frame, find("EditorNavBtn"), "切到方案编辑", &mut godot);
-    // 编辑器：新建方案（自动载入空参数的新方案）
-    click_button(140, *frame, find("NewBtn"), "新建方案", &mut godot);
-    // 编辑器：连续新增两个参数
-    click_button(190, *frame, find("AddParamBtn"), "新增参数[0]", &mut godot);
-    click_button(240, *frame, find("AddParamBtn"), "新增参数[1]", &mut godot);
-    // 编辑器：删除第 2 个参数（index=1）
-    click_remove_button(290, *frame, &rows, 1);
-    // 编辑器：保存（写回方案文件）
-    click_button(340, *frame, find("SaveBtn"), "保存", &mut godot);
+    // 新建方案（内存草稿，预填“未命名方案-<ts>”）
+    click_button(120, *frame, find("NewBtn"), "新建方案", &mut godot);
+    // 填名称/描述（随后保存将按“自检方案”改名落盘）
+    if *frame == 125 {
+        if let (Some(name), Some(desc)) = (find("NameEdit"), find("DescEdit")) {
+            godot.get::<LineEdit>(name).set_text("自检方案");
+            godot
+                .get::<LineEdit>(desc)
+                .set_text("KPI_SHOT 自检生成，可删除");
+            info!("KPI_SHOT: 已填名称/描述");
+        } else {
+            warn!("KPI_SHOT: 未找到 NameEdit/DescEdit");
+        }
+    }
+    // 新增两个参数
+    click_button(130, *frame, find("AddParamBtn"), "新增参数[0]", &mut godot);
+    click_button(140, *frame, find("AddParamBtn"), "新增参数[1]", &mut godot);
+    // 编辑第 1 行：名称=考勤分 / 类型=小数 / 值=99.5
+    if *frame == 150 {
+        if !rows.name_edits.is_empty()
+            && !rows.type_buttons.is_empty()
+            && !rows.value_edits.is_empty()
+        {
+            rows.name_edits[0].clone().set_text("考勤分");
+            rows.type_buttons[0].clone().select(2); // PARAM_TYPES 下标 2 = decimal
+            rows.value_edits[0].clone().set_text("99.5");
+            info!("KPI_SHOT: 已编辑第 1 行参数（考勤分/小数/99.5）");
+        } else {
+            warn!("KPI_SHOT: 参数行尚未渲染，跳过行编辑");
+        }
+    }
+    // 删除第 2 行参数（index=1）
+    click_remove_button(160, *frame, &rows, 1);
+    // 保存（改名 → 写 schemes/自检方案.json）
+    click_button(180, *frame, find("SaveBtn"), "保存", &mut godot);
 
-    if *frame == 400
+    if *frame == 260
         && let Some(handle) = find("AppTitle")
     {
         info!("KPI_SHOT: 截图并退出");
