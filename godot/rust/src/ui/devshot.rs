@@ -13,7 +13,7 @@ use godot::obj::Singleton;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle};
 use tracing::{info, warn};
 
-use super::derived::{DerivedDetail, DerivedListRows};
+use super::derived::DerivedDetail;
 use super::editor::ParamRows;
 use super::view::UiRefs;
 
@@ -36,7 +36,6 @@ pub fn dev_shot_system(
     mut frame: Local<u32>,
     refs: Res<UiRefs>,
     rows: NonSend<ParamRows>,
-    dlist: NonSend<DerivedListRows>,
     ddetail: NonSend<DerivedDetail>,
     scene_nodes: Query<(&GodotNodeHandle, &Name)>,
     mut godot: GodotAccess,
@@ -147,8 +146,8 @@ pub fn dev_shot_system(
     click_button(262, *frame, find("AddMapBtn"), "新增映射行", &mut godot);
     click_button(268, *frame, find("AddFieldBtn"), "新增字段", &mut godot);
     if *frame == 278 {
-        if !dlist.id_edits.is_empty() {
-            dlist.id_edits[0].clone().set_text("代课视角");
+        if let Some(e) = &ddetail.id_edit {
+            e.clone().set_text("代课视角");
         }
         if !ddetail.map_dst.is_empty() && !ddetail.map_src.is_empty() {
             ddetail.map_dst[0].clone().set_text("姓名");

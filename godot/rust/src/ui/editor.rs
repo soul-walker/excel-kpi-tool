@@ -58,6 +58,22 @@ pub struct EditorNodes {
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/DetailTitle")]
     pub derived_detail_title: GodotNodeHandle,
     #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/IdRow/DerivedIdEdit"
+    )]
+    pub derived_id_edit: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FromRow/FromSelect"
+    )]
+    pub derived_from_select: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MergeRow/MergeEdit"
+    )]
+    pub derived_on_edit: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow/WhenEdit"
+    )]
+    pub derived_when_edit: GodotNodeHandle,
+    #[node(
         "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow/GroupEdit"
     )]
     pub derived_group_edit: GodotNodeHandle,
@@ -639,7 +655,7 @@ pub fn on_validate_clicked(
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
-    dlist: bevy::prelude::NonSend<DvList>,
+    _dlist: bevy::prelude::NonSend<DvList>,
     ddetail: bevy::prelude::NonSend<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -671,8 +687,8 @@ pub fn on_validate_clicked(
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
-    // 派生表与详情 → raw。
-    if let Err(err) = derived::write_back(&mut raw, &dlist, &ddetail, doc.selected_derived) {
+    // 派生详情 → raw。
+    if let Err(err) = derived::write_back(&mut raw, &ddetail, doc.selected_derived) {
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
@@ -696,7 +712,7 @@ pub fn on_save_clicked(
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
-    dlist: bevy::prelude::NonSend<DvList>,
+    _dlist: bevy::prelude::NonSend<DvList>,
     ddetail: bevy::prelude::NonSend<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -737,8 +753,8 @@ pub fn on_save_clicked(
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }
-    // 派生表与详情 → raw。
-    if let Err(err) = derived::write_back(&mut raw, &dlist, &ddetail, doc.selected_derived) {
+    // 派生详情 → raw。
+    if let Err(err) = derived::write_back(&mut raw, &ddetail, doc.selected_derived) {
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }

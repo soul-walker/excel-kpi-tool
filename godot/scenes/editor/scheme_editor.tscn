@@ -212,19 +212,76 @@ layout_mode = 2
 autowrap_mode = 2
 text = "派生详情（未选中派生）"
 
+[node name="IdRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 0)
+text = "派生 id："
+
+[node name="DerivedIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 代课视角（其它引用按此 id 指向本视图）"
+
+[node name="FromRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="FromLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FromRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 0)
+text = "来源表 from："
+
+[node name="FromSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FromRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="MergeRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="MergeLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MergeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 0)
+text = "合并续列 on："
+
+[node name="MergeEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MergeRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "留空=不合并；填列名（如 天数）：该列空的续行并入上一条记录"
+
+[node name="WhenRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WhenLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 0)
+text = "过滤 when："
+
+[node name="WhenEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "留空=全部行；如 替上课老师 != ''（只留被他人代课的行）"
+
 [node name="GroupRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
 [node name="GroupLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(56, 0)
+custom_minimum_size = Vector2(96, 0)
 text = "分组列："
+
+tooltip_text = "按哪一列归并成一条后再算字段（如按 姓名 汇总每个老师）；留空则每行各算一条"
 
 [node name="GroupEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
 layout_mode = 3
 size_flags_horizontal = 3
-placeholder_text = "空 = 逐行；填列名 = 按该列分组再算字段"
+placeholder_text = "空 = 逐行；填列名 = 按该列归并后再算下方字段（字段可写 SUM(列)）"
 
 [node name="MapHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
