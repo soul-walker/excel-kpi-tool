@@ -6,11 +6,15 @@
 
 pub mod error;
 pub mod plugin;
+pub mod reader;
 pub mod scheme;
 pub mod table;
+pub mod template;
 pub mod workbook;
+pub mod xmlpatch;
 
 pub use error::{Error, Result};
+pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_key};
 pub use scheme::{
     AggregateSpec, ApplyMode, BlankBehavior, ColumnSpec, ColumnType, DerivedSpec, DuplicatePolicy,
     EntitySpec, FieldExpr, GroupSheetRef, GroupSpec, Issue, NewColumn, NewFileOutput, OutputKind,
@@ -18,4 +22,6 @@ pub use scheme::{
     Scheme, Severity, SourceSpec, VersionedScheme,
 };
 pub use table::{CellValue, Column, Row, Table};
+pub use template::{SheetEdit, patch_workbook};
 pub use workbook::{UmyaWorkbook, WorkbookIO};
+pub use xmlpatch::patch_cells;

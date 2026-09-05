@@ -16,6 +16,7 @@ members = [
 [workspace.dependencies]
 anyhow = "1"
 bevy = { version = "0.18", default-features = false, features = ["bevy_state"] }
+calamine = "0.36.1"   # 只读 xlsx（候选 reader；见 M0 拆解 0.3 决策）
 clap = { version = "4.6", features = ["derive"] }
 godot = "0.4"
 godot-bevy = { version = "0.11.0" }
