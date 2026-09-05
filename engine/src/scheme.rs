@@ -10,11 +10,12 @@
 //! 视图模型：考核以“某人某方面”为点，所有明细基本以方案 `entity.key_field` 的人为主键；
 //! 只有“请假替上课”这类一条记录牵涉两个人（请假人 + 替课老师）的台账，才需要派生“另一方视角”
 //! 的视图（把行内他人列映射成新 key）。因此 derived 为**单输入**行视图（输入可为 source 或先前
-//! derived），靠 map/merge/when/group 表达视角变换，**不需要多表 join/union**（评审确认无此场景）。
-//! - 存储形态 = 单个 JSON 文件（版本化迁移，见 `VersionedScheme`）。
+//! derived），靠 `columns` 视图列定义（前缀表达式 + 可选 `GROUP_BY`）表达视角变换，
+//! **不需要多表 join/union**（评审确认无此场景）。
 
 use serde::{Deserialize, Serialize};
 
+use crate::calc::{self, Node};
 use crate::error::{Error, Result};
 
 /// 当前支持的方案 schema 版本。
@@ -29,17 +30,9 @@ pub struct VersionedScheme {
 }
 
 impl VersionedScheme {
-    /// 从 JSON 文本加载并校验版本（含旧版 derived 的 map/fields → columns 迁移）。
+    /// 从 JSON 文本加载并校验版本。
     pub fn from_json_str(s: &str) -> Result<Self> {
-        let mut value: serde_json::Value = serde_json::from_str(s)?;
-        if let Some(ds) = value
-            .get_mut("scheme")
-            .and_then(|s| s.get_mut("derived"))
-            .and_then(|v| v.as_array_mut())
-        {
-            migrate_legacy_derived(ds);
-        }
-        let parsed: Self = serde_json::from_value(value)?;
+        let parsed: Self = serde_json::from_str(s)?;
         if parsed.schema_version != SCHEMA_VERSION {
             return Err(Error::UnsupportedSchema(
                 parsed.schema_version,
@@ -52,52 +45,6 @@ impl VersionedScheme {
     /// 输出为格式化 JSON（保存用）。
     pub fn to_json_pretty(&self) -> Result<String> {
         Ok(serde_json::to_string_pretty(self)?)
-    }
-}
-
-/// 旧版派生用 `map`(目标←源) + `fields`(name/expr) 两段表达输出列，
-/// 现合并为单一 `columns`（`目标←源` 即 `expr = 源列`）。此处把旧 JSON 结构原位迁移。
-fn migrate_legacy_derived(ds: &mut [serde_json::Value]) {
-    for d in ds.iter_mut() {
-        let has_columns = d
-            .get("columns")
-            .and_then(|c| c.as_array())
-            .is_some_and(|c| !c.is_empty());
-        if has_columns {
-            if let Some(o) = d.as_object_mut() {
-                o.remove("map");
-                o.remove("fields");
-            }
-            continue;
-        }
-        let mut cols: Vec<serde_json::Value> = Vec::new();
-        if let Some(map) = d.get("map").and_then(|m| m.as_object()) {
-            for (to, src) in map {
-                cols.push(serde_json::json!({
-                    "name": to,
-                    "expr": src.as_str().unwrap_or(""),
-                }));
-            }
-        }
-        if let Some(fields) = d.get("fields").and_then(|f| f.as_array()) {
-            for f in fields {
-                let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let expr = f.get("expr").and_then(|v| v.as_str()).unwrap_or("");
-                if !name.is_empty() {
-                    cols.push(serde_json::json!({
-                        "name": name,
-                        "expr": if expr.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(expr.into()) }
-                    }));
-                }
-            }
-        }
-        if !cols.is_empty() {
-            d["columns"] = serde_json::Value::Array(cols);
-        }
-        if let Some(o) = d.as_object_mut() {
-            o.remove("map");
-            o.remove("fields");
-        }
     }
 }
 
@@ -261,11 +208,15 @@ pub struct MergeSpec {
 }
 
 /// 派生视图的一列：`name` = 输出列名；`expr` = 取值表达式。
-/// - 空（None）：逐行透传输入表的同名列（“从原表直接带出”）；
-/// - 普通表达式（如 `替上课老师`、`节数 * 7`）：逐行计算，可引用输入列或先前列；
-/// - 聚合表达式（如 `SUM(节数)`）：需配合 `group_by`，在组上计算。
 ///
-/// 旧版的“列映射”（目标列 ← 源列）即 `expr = 源列名` 的特例，已合并进来。
+/// 表达式引用一律带命名空间前缀，不允许裸列名：
+/// - `{from}.列`：输入表（from）的列，逐行取值（可用在 `SUM(...)` 等聚合里）；
+/// - `{视图id}.列`：本视图前面已定义的输出列（引用顺序保证）；
+/// - `参数.x`：方案参数；
+/// - 分组：某列表达式写 `GROUP_BY({from}.列)`，声明它是组键（全视图至多一列），
+///   此时其余列按组上下文求值（可用 `SUM/COUNT/AVG/MIN/MAX(...)`）。
+///
+/// `expr` 为空（None）＝输出列直接透传输入表同名列（无引用书写）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ColumnDef {
@@ -277,6 +228,7 @@ pub struct ColumnDef {
 /// 派生明细（表视图）：先做行整理（主从合并），再做过滤，最后按“视图列定义”
 /// 逐行/分组产出新表。`from` 可引用 source 或先前 derived（视图可链式叠加）。
 /// `columns` 为空时表示“原样透传输入行”（配合 merge/when 作行整理视图）。
+/// 是否有分组由某列的 `GROUP_BY(...)` 表达式决定，无独立 group_by 字段。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DerivedSpec {
@@ -286,12 +238,9 @@ pub struct DerivedSpec {
     /// 可选：主从续行合并（见 MergeSpec）。
     #[serde(default)]
     pub merge: Option<MergeSpec>,
-    /// 行过滤表达式（空 = 全部行）。
+    /// 行过滤表达式（空 = 全部行；引用同样带前缀）。
     #[serde(default)]
     pub when: Option<String>,
-    /// 若设置，先按某“视图列”分组再计算该组上的聚合列。
-    #[serde(default)]
-    pub group_by: Option<String>,
     /// 视图输出列定义（顺序即输出顺序；空 = 原样透传）。
     #[serde(default)]
     pub columns: Vec<ColumnDef>,
@@ -592,14 +541,32 @@ impl Scheme {
                 &format!("derived.{} 的输出列", d.id),
                 d.columns.iter().map(|c| c.name.as_str()),
             );
-            // group_by 必须指向某个视图列
-            if let Some(gb) = &d.group_by
-                && !d.columns.iter().any(|c| c.name == *gb)
-            {
+            // 分组：GROUP_BY(...) 作为某列表达式声明（至多一列）
+            let group_cols = d
+                .columns
+                .iter()
+                .filter(|c| {
+                    c.expr
+                        .as_deref()
+                        .and_then(|t| calc::parse(t).ok())
+                        .is_some_and(|n| is_group_key(&n))
+                })
+                .count();
+            if group_cols > 1 {
                 out.push(Issue::error(
-                    format!("derived.{}.group_by", d.id),
-                    format!("group_by 引用了不存在的视图列: {gb}"),
+                    format!("derived.{}", d.id),
+                    "GROUP_BY(...) 只能出现在一列（分组键）",
                 ));
+            }
+            // 列表达式语法与命名空间（引用一律带前缀：from / 本视图 / 参数）
+            validate_view_expr(&mut out, d, &format!("derived.{}", d.id), &d.when);
+            for c in &d.columns {
+                validate_view_expr(
+                    &mut out,
+                    d,
+                    &format!("derived.{}.columns.{}", d.id, c.name),
+                    &c.expr,
+                );
             }
         }
         for a in &self.aggregates {
@@ -679,6 +646,86 @@ fn check_unique<'a>(out: &mut Vec<Issue>, ns: &str, iter: impl Iterator<Item = &
                 ns.to_string(),
                 format!("存在重复 id/name: {name}"),
             ));
+        }
+    }
+}
+
+/// 表达式是否为“分组键”声明（顶层 GROUP_BY(...)）。
+fn is_group_key(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::Call { name, .. } if name.eq_ignore_ascii_case("group_by")
+    )
+}
+
+/// 视图表达式（when / 列 expr）语法与命名空间校验：引用必须带前缀，
+/// 且前缀只能是 {from}（输入行）、{本视图 id}（前列）、`参数`。
+fn validate_view_expr(out: &mut Vec<Issue>, d: &DerivedSpec, loc: &str, expr: &Option<String>) {
+    let Some(text) = expr.as_deref() else { return };
+    let node = match calc::parse(text) {
+        Ok(n) => n,
+        Err(e) => {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!("表达式解析失败: {e}"),
+            ));
+            return;
+        }
+    };
+    let mut paths = Vec::new();
+    collect_paths(&node, &mut paths);
+    let allowed: Vec<&str> = vec![d.from.as_str(), d.id.as_str(), "参数"];
+    for p in paths {
+        if p.len() == 1 {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!(
+                    "引用需带命名空间前缀（如 {}.列 / {}.列 / 参数.x）：{}",
+                    d.from,
+                    d.id,
+                    p.join(".")
+                ),
+            ));
+        } else if !allowed.contains(&p[0].as_str()) {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!(
+                    "未知命名空间前缀 {}：应为 {} / {} / 参数",
+                    p[0], d.from, d.id
+                ),
+            ));
+        }
+    }
+}
+
+fn collect_paths(node: &Node, out: &mut Vec<Vec<String>>) {
+    match node {
+        Node::Num(_) | Node::Str(_) | Node::Bool(_) | Node::Empty => {}
+        Node::Path(p) => out.push(p.clone()),
+        Node::Not(x) => collect_paths(x, out),
+        Node::Coalesce { l, r } => {
+            collect_paths(l, out);
+            collect_paths(r, out);
+        }
+        Node::If { cond, then, els } => {
+            collect_paths(cond, out);
+            collect_paths(then, out);
+            collect_paths(els, out);
+        }
+        Node::Bin { l, r, .. } => {
+            collect_paths(l, out);
+            collect_paths(r, out);
+        }
+        Node::Call { args, .. } => {
+            for a in args {
+                collect_paths(a, out);
+            }
+        }
+        Node::Agg { expr, cond, .. } => {
+            collect_paths(expr, out);
+            if let Some(c) = cond {
+                collect_paths(c, out);
+            }
         }
     }
 }

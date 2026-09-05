@@ -73,10 +73,6 @@ pub struct EditorNodes {
         "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow/WhenEdit"
     )]
     pub derived_when_edit: GodotNodeHandle,
-    #[node(
-        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow/GroupEdit"
-    )]
-    pub derived_group_edit: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldBox")]
     pub derived_field_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
@@ -100,7 +96,7 @@ pub struct EditorDoc {
     pub raw: Option<serde_json::Value>,
     /// 数据源页签中当前选中编辑其列映射的数据源序号。
     pub selected_source: i32,
-    /// 派生页签中当前选中查看详情（分组/映射/字段）的派生序号。
+    /// 派生页签中当前选中查看详情（id/来源/视图列）的派生序号。
     pub selected_derived: i32,
 }
 
@@ -323,7 +319,7 @@ fn load_current(
             return;
         }
     };
-    let mut raw: serde_json::Value = match serde_json::from_str(&raw_text) {
+    let raw: serde_json::Value = match serde_json::from_str(&raw_text) {
         Ok(v) => v,
         Err(e) => {
             log_err(nodes, godot, &format!("JSON 解析失败：{e}"));
@@ -340,8 +336,6 @@ fn load_current(
 
     doc.path = Some(path);
     doc.base = Some(base.clone());
-    // 旧版 derived 的 map/fields → columns 迁移
-    derived::migrate_legacy(&mut raw);
     doc.raw = Some(raw);
 
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);

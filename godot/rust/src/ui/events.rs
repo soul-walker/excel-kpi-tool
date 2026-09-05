@@ -108,7 +108,7 @@ pub(crate) struct DerivedRemoveClicked {
     pub index: i32,
 }
 
-/// 编辑器：选中第 index 个派生（“详情”按钮）编辑其分组/映射/字段。
+/// 编辑器：选中第 index 个派生（“详情”按钮）编辑其 id/来源/视图列。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct DerivedDetailClicked {
     pub index: i32,

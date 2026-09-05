@@ -182,7 +182,7 @@ layout_mode = 2
 
 [node name="DerivedHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
 layout_mode = 2
-text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。点行尾「详情」编辑该派生。"
+text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。点行尾「详情」编辑。"
 size_flags_horizontal = 3
 autowrap_mode = 2
 
@@ -265,31 +265,16 @@ text = "过滤 when："
 [node name="WhenEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow"]
 layout_mode = 3
 size_flags_horizontal = 3
-placeholder_text = "留空=全部行；如 替上课老师 != ''（只留被他人代课的行）"
-
-[node name="GroupRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="GroupLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(96, 0)
-text = "分组列："
-
-tooltip_text = "按哪一列归并成一条后再算字段（如按 姓名 汇总每个老师）；留空则每行各算一条"
-
-[node name="GroupEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
-layout_mode = 3
-size_flags_horizontal = 3
-placeholder_text = "空 = 逐行；填列名 = 按该列归并后再算下方字段（字段可写 SUM(列)）"
+placeholder_text = "留空=全部行；引用带前缀，如 qingjia.替上课老师 != ''"
 
 [node name="FieldHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
 
 [node name="FieldTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2
-text = "视图列定义（列名 = 表达式；写源列名即映射/改名；expr 空 = 同名透传）"
+text = "视图列定义（列名 = 表达式；引用一律带前缀：{来源}.列 / {本视图}.前列 / 参数.x；某列写 GROUP_BY({来源}.列) 即分组汇总）"
 size_flags_horizontal = 3
+autowrap_mode = 2
 
 [node name="AddFieldBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2

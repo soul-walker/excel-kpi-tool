@@ -12,6 +12,7 @@
       { "name": "基础课时", "label": "基础课时", "value_type": "decimal", "value": 15.6 },
       { "name": "课时费", "label": "课时费", "value_type": "decimal", "value": 1.5 },
       { "name": "超课时费", "label": "超课时费", "value_type": "decimal", "value": 5 },
+      { "name": "补课时费", "label": "补课时费", "value_type": "decimal", "value": 7 },
       { "name": "事假单价", "label": "事假单价", "value_type": "decimal", "value": 20 },
       { "name": "病假单价", "label": "病假单价", "value_type": "decimal", "value": 10 },
       { "name": "折扣", "label": "折扣", "value_type": "decimal", "value": 0.2 },
@@ -103,12 +104,11 @@
       {
         "id": "bukesh",
         "from": "qingjia",
-        "when": "替上课老师 != ''",
-        "group_by": "姓名",
+        "when": "qingjia.替上课老师 != ''",
         "columns": [
-          { "name": "姓名", "expr": "替上课老师" },
-          { "name": "节数", "expr": "SUM(节数)" },
-          { "name": "费用", "expr": "节数 * 7" }
+          { "name": "姓名", "expr": "GROUP_BY(qingjia.替上课老师)" },
+          { "name": "节数", "expr": "SUM(qingjia.节数)" },
+          { "name": "费用", "expr": "bukesh.节数 * 参数.补课时费" }
         ]
       }
     ],

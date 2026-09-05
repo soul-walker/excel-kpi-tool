@@ -3,9 +3,9 @@
 //! 派生表（每行一个派生）只作导航：`序号 | id | 详情 | 删除`。
 //! 选中（点「详情」）后，下方详情面板编辑该派生的全部属性：
 //! - 基本：派生 id / 来源表 from（下拉）/ 合并续列 on / 过滤 when；
-//! - 分组列 group_by；
-//! - 列映射 map（表格：目标列名 = 源列名；把他人列映射成姓名即“换人视角”）；
-//! - 派生字段 fields（表格：字段名 + 表达式，分组时可写 SUM(列)）。
+//! - 视图列 columns（表格：列名 + 表达式）。表达式一律带命名空间前缀：
+//!   `{from}.列`（输入行列，可作 SUM(...) 聚合）、`{视图id}.列`（本视图前列）、`参数.x`；
+//!   某列写 `GROUP_BY({from}.列)` 即声明为组键（全视图至多一列），其余列按组求值。
 //!
 //! 保存/校验时仅当前选中派生从详情控件写回；未选中的派生原样保留。
 
@@ -59,8 +59,6 @@ pub struct DerivedDetail {
     pub on_edit: Option<Gd<LineEdit>>,
     /// 过滤 when 输入。
     pub when_edit: Option<Gd<LineEdit>>,
-    /// 分组列输入。
-    pub group_edit: Option<Gd<LineEdit>>,
     pub field_name: Vec<Gd<LineEdit>>,
     pub field_expr: Vec<Gd<LineEdit>>,
     pub field_del: Vec<(i32, Gd<Button>)>,
@@ -73,7 +71,6 @@ impl DerivedDetail {
         self.from_btn = None;
         self.on_edit = None;
         self.when_edit = None;
-        self.group_edit = None;
         self.field_name.clear();
         self.field_expr.clear();
         self.field_del.clear();
@@ -248,7 +245,6 @@ fn render_detail(
     let mut from_btn = godot.get::<OptionButton>(nodes.derived_from_select);
     let mut on_edit = godot.get::<LineEdit>(nodes.derived_on_edit);
     let mut when_edit = godot.get::<LineEdit>(nodes.derived_when_edit);
-    let mut gb_edit = godot.get::<LineEdit>(nodes.derived_group_edit);
     let mut field_box = godot.get::<VBoxContainer>(nodes.derived_field_box);
     clear_children(&mut field_box);
 
@@ -273,7 +269,6 @@ fn render_detail(
             })
             .unwrap_or_default();
         let when = d.get("when").and_then(|v| v.as_str()).unwrap_or("");
-        let gb = d.get("group_by").and_then(|v| v.as_str()).unwrap_or("");
 
         title.set_text(&format!("派生详情 · {}（第 {} 个）", id, sel + 1));
         id_edit.set_text(id);
@@ -291,7 +286,6 @@ fn render_detail(
         }
         on_edit.set_text(&on);
         when_edit.set_text(when);
-        gb_edit.set_text(gb);
 
         // 视图列表格（含表头）：列名 + 表达式（expr 空 = 同名透传）
         let columns = d
@@ -308,7 +302,7 @@ fn render_detail(
         head_label(&mut grid, "列名", 130.0, false, gray);
         head_label(
             &mut grid,
-            "表达式（写源列名=改名；留空=同名透传；可写 SUM(列)）",
+            "表达式（留空=透传同名输入列；{from}.列 / {视图id}.前列 / 参数.x；某列写 GROUP_BY({from}.列) 即分组）",
             0.0,
             true,
             gray,
@@ -330,7 +324,7 @@ fn render_detail(
             grid.add_child(&n_e);
             let mut e_e = LineEdit::new_alloc();
             e_e.set_text(expr);
-            e_e.set_placeholder("如 替上课老师 / 节数 * 7 / SUM(节数)");
+            e_e.set_placeholder("如 {from}.列 / SUM({from}.列) / 参数.x");
             e_e.set_h_size_flags(SizeFlags::EXPAND_FILL);
             grid.add_child(&e_e);
             let mut del = Button::new_alloc();
@@ -347,13 +341,11 @@ fn render_detail(
         detail.from_btn = Some(from_btn);
         detail.on_edit = Some(on_edit);
         detail.when_edit = Some(when_edit);
-        detail.group_edit = Some(gb_edit);
     } else {
         title.set_text("派生详情（先新增派生）");
         id_edit.set_text("");
         when_edit.set_text("");
         on_edit.set_text("");
-        gb_edit.set_text("");
         empty_hint(&mut field_box, "无视图列", "DerivedFieldHint");
     }
 }
@@ -539,7 +531,7 @@ pub fn on_remove_field(
             return;
         };
         let Some(d) = ds.get_mut(sel) else { return };
-        let Some(fields) = d.get_mut("fields").and_then(|f| f.as_array_mut()) else {
+        let Some(fields) = d.get_mut("columns").and_then(|f| f.as_array_mut()) else {
             return;
         };
         if idx < 0 || idx as usize >= fields.len() {
@@ -559,7 +551,7 @@ pub fn on_remove_field(
 
 // ---------- 写回（保存 / 校验前调用） ----------
 
-/// 当前选中派生的详情（id/from/on/when/分组/映射/字段）整体写回 raw 的派生项。
+/// 当前选中派生的详情（id/from/on/when/视图列）整体写回 raw 的派生项。
 pub fn write_back(
     raw: &mut serde_json::Value,
     detail: &DerivedDetail,
@@ -613,12 +605,6 @@ pub fn write_back(
         .map(|e| e.get_text().to_string())
         .unwrap_or_default();
     let when = when.trim().to_string();
-    let gb = detail
-        .group_edit
-        .as_ref()
-        .map(|e| e.get_text().to_string())
-        .unwrap_or_default();
-    let gb = gb.trim().to_string();
 
     // 视图列（列名 + 表达式；expr 空 = 同名透传）
     let mut columns = Vec::new();
@@ -654,9 +640,6 @@ pub fn write_back(
     if !columns.is_empty() {
         d["columns"] = serde_json::Value::Array(columns);
     }
-    if !gb.is_empty() {
-        d["group_by"] = serde_json::Value::String(gb);
-    }
     ds[sel] = d;
     Ok(())
 }
@@ -678,58 +661,6 @@ fn table_candidates_in(raw: &serde_json::Value) -> Vec<String> {
         }
     }
     out
-}
-
-/// GUI 载入时的旧版派生迁移：`map`(目标←源) + `fields` → 单一 `columns`。
-pub fn migrate_legacy(raw: &mut serde_json::Value) {
-    let Some(ds) = raw
-        .get_mut("scheme")
-        .and_then(|s| s.get_mut("derived"))
-        .and_then(|v| v.as_array_mut())
-    else {
-        return;
-    };
-    for d in ds.iter_mut() {
-        let has_columns = d
-            .get("columns")
-            .and_then(|c| c.as_array())
-            .is_some_and(|c| !c.is_empty());
-        if has_columns {
-            if let Some(o) = d.as_object_mut() {
-                o.remove("map");
-                o.remove("fields");
-            }
-            continue;
-        }
-        let mut cols: Vec<serde_json::Value> = Vec::new();
-        if let Some(map) = d.get("map").and_then(|m| m.as_object()) {
-            for (to, src) in map {
-                cols.push(serde_json::json!({
-                    "name": to,
-                    "expr": src.as_str().unwrap_or(""),
-                }));
-            }
-        }
-        if let Some(fields) = d.get("fields").and_then(|f| f.as_array()) {
-            for f in fields {
-                let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let expr = f.get("expr").and_then(|v| v.as_str()).unwrap_or("");
-                if !name.is_empty() {
-                    cols.push(serde_json::json!({
-                        "name": name,
-                        "expr": if expr.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(expr.into()) }
-                    }));
-                }
-            }
-        }
-        if !cols.is_empty() {
-            d["columns"] = serde_json::Value::Array(cols);
-        }
-        if let Some(o) = d.as_object_mut() {
-            o.remove("map");
-            o.remove("fields");
-        }
-    }
 }
 
 // ---------- 辅助 ----------

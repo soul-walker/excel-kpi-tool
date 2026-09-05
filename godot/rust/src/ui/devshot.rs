@@ -5,7 +5,7 @@
 //! 150 编辑第 1 行（名称=考勤分、值=99.5，自动识别小数）→ 170 第 2 行改名同名 →
 //! 185 保存（应报参数名重复）→ 195 第 2 行名恢复 → 210 保存成功 → 225 校验通过 →
 //! 232 切数据源页 → 235/240 加源加列 → 248 保存 →
-//! 252 切派生页 → 256/262/268 新增派生+映射+字段 → 278 填值 → 288 保存 → 380 截图退出。
+//! 252 切派生页 → 256/262/268 新增派生+视图列 → 278 填值 → 288 保存 → 380 截图退出。
 
 use bevy::prelude::{Local, Name, NonSend, Query, Res};
 use godot::classes::{Button, Control, LineEdit, ProjectSettings, TabContainer};
@@ -151,16 +151,13 @@ pub fn dev_shot_system(
         }
         if !ddetail.field_name.is_empty() && !ddetail.field_expr.is_empty() {
             ddetail.field_name[0].clone().set_text("姓名");
-            ddetail.field_expr[0].clone().set_text("替上课老师");
+            ddetail.field_expr[0].clone().set_text("GROUP_BY(源1.姓名)");
         }
         if ddetail.field_name.len() >= 2 && ddetail.field_expr.len() >= 2 {
             ddetail.field_name[1].clone().set_text("节数");
-            ddetail.field_expr[1].clone().set_text("SUM(节数)");
+            ddetail.field_expr[1].clone().set_text("SUM(源1.姓名)");
         }
-        if let Some(g) = &ddetail.group_edit {
-            g.clone().set_text("姓名");
-        }
-        info!("KPI_SHOT: 已填派生（代课视角/姓名←替上课老师/SUM(节数)）");
+        info!("KPI_SHOT: 已填派生（代课视角/GROUP_BY(源1.姓名)/SUM(源1.姓名)）");
     }
     click_button(288, *frame, find("SaveBtn"), "保存(含派生)", &mut godot);
 

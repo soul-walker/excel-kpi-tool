@@ -2,8 +2,8 @@
 //!
 //! 数据流：sources（物理表，文件唯一）→ derived（表视图，可链式）→
 //! aggregates（按 key 聚合）/ groups（字段求值）/ outputs。
-//! derived 视图变换顺序：主从合并(merge) → 行过滤(when) → 重映射/透传(map)
-//! → 按 group_by 分组计算 fields（或逐行字段 / 纯行视图透传）。
+//! derived 视图变换顺序：主从合并(merge) → 行过滤(when) →
+//! 视图列 columns 逐行求值 / 某列 `GROUP_BY(...)` 时按组汇总。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -50,10 +50,11 @@ pub fn run_scheme(scheme: &Scheme, dir: &Path) -> Result<SchemeRun> {
     }
 
     let mut derived_tables = HashMap::new();
+    let params = param_lookup(scheme);
     for d in &scheme.derived {
         let cols = cols_for(&d.from, &source_tables, &derived_tables)?;
         let rows = rows_for(&d.from, &source_tables, &derived_tables)?;
-        let table = compute_derived(d, &cols, &rows)?;
+        let table = compute_derived(d, &params, &cols, &rows)?;
         derived_tables.insert(d.id.clone(), table);
     }
 
@@ -127,9 +128,11 @@ fn value_key(v: &Value) -> String {
 }
 
 /// 执行派生（表视图）：主从合并 → 行过滤 → 按“视图列定义”逐行/分组产出。
-/// `columns` 为空时透传输入行（配合 merge/when 作行整理视图）。
+/// 表达式引用一律带前缀：`{from}.列` 在解析后归并为行级列；`{本视图}.列` 引用前列；
+/// `参数.x` 引用方案参数。某列写 `GROUP_BY(...)` 即声明该列为组键（汇总视图）。
 pub fn compute_derived(
     spec: &DerivedSpec,
+    params: &HashMap<String, Value>,
     in_cols: &[String],
     in_rows: &[CalcRow],
 ) -> Result<DerivedTable> {
@@ -139,13 +142,16 @@ pub fn compute_derived(
         None => in_rows.to_vec(),
     };
 
-    // 1) 过滤
-    let when_node = spec
+    // 1) 过滤（when 引用同样带 from 前缀，先归并）
+    let mut when_node = spec
         .when
         .as_deref()
         .map(calc::parse)
         .transpose()
         .map_err(|e| Error::Runtime(format!("derived.{} when 解析失败: {e}", spec.id)))?;
+    if let Some(n) = &mut when_node {
+        strip_from_prefix(n, &spec.from);
+    }
     let mut rows: Vec<CalcRow> = Vec::with_capacity(base.len());
     for r in base {
         let keep = match &when_node {
@@ -162,53 +168,60 @@ pub fn compute_derived(
         }
     }
 
-    // 2) 视图列定义（名称 + 表达式，expr 空 = 同名透传）。
+    // 2) 视图列定义：解析表达式、归并 from 前缀，并识别 GROUP_BY 键列。
     if spec.columns.is_empty() {
-        if spec.group_by.is_some() {
-            return Err(Error::Runtime(format!(
-                "derived.{}：group_by 需要 columns 输出列定义",
-                spec.id
-            )));
-        }
         return Ok(DerivedTable {
             columns: in_cols.to_vec(),
             rows,
         });
     }
-    let parsed: Vec<(String, Option<Node>)> = spec
-        .columns
-        .iter()
-        .map(|c| {
-            let node = c
-                .expr
-                .as_deref()
-                .map(calc::parse)
-                .transpose()
-                .map_err(|e| {
-                    Error::Runtime(format!(
-                        "derived.{} 列 {} 表达式解析失败: {e}",
-                        spec.id, c.name
-                    ))
-                })?;
-            Ok((c.name.clone(), node))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let mut parsed: Vec<(String, Option<Node>)> = Vec::with_capacity(spec.columns.len());
+    for c in &spec.columns {
+        let mut node = c
+            .expr
+            .as_deref()
+            .map(calc::parse)
+            .transpose()
+            .map_err(|e| {
+                Error::Runtime(format!(
+                    "derived.{} 列 {} 表达式解析失败: {e}",
+                    spec.id, c.name
+                ))
+            })?;
+        if let Some(n) = &mut node {
+            strip_from_prefix(n, &spec.from);
+        }
+        parsed.push((c.name.clone(), node));
+    }
     let columns: Vec<String> = parsed.iter().map(|(n, _)| n.clone()).collect();
+    let key_col: Option<usize> = parsed.iter().position(|(_, n)| {
+        matches!(n, Some(Node::Call { name, .. }) if name.eq_ignore_ascii_case("group_by"))
+    });
 
-    if let Some(gb) = &spec.group_by {
-        // 分组键列：必须出现在视图列中，其表达式逐行求值得到组键。
-        let gb_idx = parsed.iter().position(|(n, _)| n == gb).ok_or_else(|| {
-            Error::Runtime(format!(
-                "derived.{}：group_by 引用了不存在的视图列 {gb}",
-                spec.id
-            ))
-        })?;
-        let key_node = parsed[gb_idx].1.clone().ok_or_else(|| {
-            Error::Runtime(format!(
-                "derived.{}：分组列 {gb} 需要表达式作为组键",
-                spec.id
-            ))
-        })?;
+    // 共享 resolver：`{本视图}.列` → 前列输出；`参数.x` → 参数；裸名 → 前列（宽容）。
+    let resolver = |p: &[String], comp: &HashMap<String, Value>| -> Option<Value> {
+        if p.len() == 1 {
+            comp.get(&p[0]).cloned()
+        } else if p.len() == 2 && p[0] == spec.id {
+            comp.get(&p[1]).cloned()
+        } else if p.len() == 2 && p[0] == "参数" {
+            params.get(&p[1]).cloned()
+        } else {
+            None
+        }
+    };
+
+    if let Some(kidx) = key_col {
+        // 分组汇总视图：键列表达式对每行求值得到组键。
+        let key_node = match &parsed[kidx].1 {
+            Some(Node::Call { args, .. }) => args.first().cloned().ok_or_else(|| {
+                Error::Runtime(format!(
+                    "derived.{}：GROUP_BY 需要参数（如 GROUP_BY({}.列))",
+                    spec.id, spec.from
+                ))
+            })?,
+            _ => unreachable!(),
+        };
         let mut groups: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
         for r in &rows {
             let k = calc::eval_on_row(&key_node, &|_| None, r)
@@ -219,17 +232,28 @@ pub fn compute_derived(
         for (_k, g) in groups {
             let mut comp: HashMap<String, Value> = HashMap::new();
             let mut out = CalcRow::new();
-            for (name, node) in &parsed {
-                let val = match node {
-                    Some(n) => eval_field(n, &g, &comp).map_err(|e| {
+            for (idx, (name, node)) in parsed.iter().enumerate() {
+                let val = if idx == kidx {
+                    // 键列：取组内首行同键值（组内一致）
+                    calc::eval_on_row(&key_node, &|_| None, &g[0]).map_err(|e| {
                         Error::Runtime(format!("derived.{} 列 {name} 求值失败: {e}", spec.id))
-                    })?,
-                    // 组上下文的透传列：取组内首行同名列（一般即组键）。
-                    None => g
-                        .first()
-                        .and_then(|f| f.get(name))
-                        .cloned()
-                        .unwrap_or(Value::Empty),
+                    })?
+                } else {
+                    match node {
+                        Some(n) => {
+                            calc::eval_rows(n, &|p| resolver(p, &comp), &g).map_err(|e| {
+                                Error::Runtime(format!(
+                                    "derived.{} 列 {name} 求值失败: {e}",
+                                    spec.id
+                                ))
+                            })?
+                        }
+                        None => g
+                            .first()
+                            .and_then(|f| f.get(name))
+                            .cloned()
+                            .unwrap_or(Value::Empty),
+                    }
                 };
                 comp.insert(name.clone(), val.clone());
                 out.insert(name.clone(), val);
@@ -242,14 +266,14 @@ pub fn compute_derived(
         });
     }
 
-    // 无分组：每行按列定义逐行求值（可引用输入列与先前列）。
+    // 无分组：每行按列定义逐行求值（可引用前列与参数）。
     let mut out_rows = Vec::with_capacity(rows.len());
     for r in &rows {
         let mut comp: HashMap<String, Value> = HashMap::new();
         let mut out = CalcRow::new();
         for (name, node) in &parsed {
             let val = match node {
-                Some(n) => eval_field(n, std::slice::from_ref(r), &comp).map_err(|e| {
+                Some(n) => calc::eval_on_row(n, &|p| resolver(p, &comp), r).map_err(|e| {
                     Error::Runtime(format!("derived.{} 列 {name} 求值失败: {e}", spec.id))
                 })?,
                 None => r.get(name).cloned().unwrap_or(Value::Empty),
@@ -263,6 +287,43 @@ pub fn compute_derived(
         columns,
         rows: out_rows,
     })
+}
+
+/// 把 AST 中的 `{from}.列` 前缀归并为裸列名（仅显式书写，执行语义 = 输入行列）。
+fn strip_from_prefix(node: &mut Node, from: &str) {
+    match node {
+        Node::Path(p) => {
+            if p.len() >= 2 && p[0] == from {
+                *p = p[1..].to_vec();
+            }
+        }
+        Node::Not(x) => strip_from_prefix(x, from),
+        Node::Coalesce { l, r } => {
+            strip_from_prefix(l, from);
+            strip_from_prefix(r, from);
+        }
+        Node::If { cond, then, els } => {
+            strip_from_prefix(cond, from);
+            strip_from_prefix(then, from);
+            strip_from_prefix(els, from);
+        }
+        Node::Bin { l, r, .. } => {
+            strip_from_prefix(l, from);
+            strip_from_prefix(r, from);
+        }
+        Node::Call { args, .. } => {
+            for a in args {
+                strip_from_prefix(a, from);
+            }
+        }
+        Node::Agg { expr, cond, .. } => {
+            strip_from_prefix(expr, from);
+            if let Some(c) = cond {
+                strip_from_prefix(c, from);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// 主从续行合并：`on` 列全空的物理行并入上一条主记录。
@@ -312,27 +373,6 @@ fn merge_value_into(target: &mut Value, extra: &Value) {
         }
         _ => {}
     }
-}
-
-fn eval_field(node: &Node, group_rows: &[CalcRow], comp: &HashMap<String, Value>) -> Result<Value> {
-    calc::eval_rows(
-        node,
-        &|p| {
-            if p.len() == 1 {
-                if let Some(v) = comp.get(&p[0]) {
-                    return Some(v.clone());
-                }
-                if let Some(first) = group_rows.first()
-                    && let Some(v) = first.get(&p[0])
-                {
-                    return Some(v.clone());
-                }
-            }
-            None
-        },
-        group_rows,
-    )
-    .map_err(Error::Runtime)
 }
 
 // ---- 按人聚合 / 分组字段逐人求值（绩效复刻核心）----
@@ -733,20 +773,19 @@ mod tests {
             id: "bukeshi_agg".into(),
             from: "qingjia".into(),
             merge: None,
-            when: Some("替上课老师 != ''".into()),
-            group_by: Some("姓名".into()),
+            when: Some("qingjia.替上课老师 != ''".into()),
             columns: vec![
                 crate::scheme::ColumnDef {
                     name: "姓名".into(),
-                    expr: Some("替上课老师".into()),
+                    expr: Some("GROUP_BY(qingjia.替上课老师)".into()),
                 },
                 crate::scheme::ColumnDef {
                     name: "节数".into(),
-                    expr: Some("SUM(节数)".into()),
+                    expr: Some("SUM(qingjia.节数)".into()),
                 },
                 crate::scheme::ColumnDef {
                     name: "费用".into(),
-                    expr: Some("节数 * 7".into()),
+                    expr: Some("bukeshi_agg.节数 * 参数.补课时费".into()),
                 },
             ],
         }
@@ -756,6 +795,12 @@ mod tests {
     fn derive_bukeshi_matches_golden() {
         let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/2023-09"));
         let scheme = Scheme {
+            parameters: vec![crate::scheme::Parameter {
+                name: "补课时费".into(),
+                label: Some("补课时费".into()),
+                value_type: crate::scheme::ColumnType::Decimal,
+                value: crate::scheme::ParamValue::Integer(7),
+            }],
             sources: vec![qingjia_source()],
             derived: vec![bukeshi_derived()],
             ..Default::default()
@@ -1190,7 +1235,6 @@ mod tests {
                 on: vec!["天数".into()],
             }),
             when: None,
-            group_by: None,
             columns: vec![],
         };
         let cols = vec![
@@ -1199,7 +1243,7 @@ mod tests {
             "天数".to_string(),
             "节数".to_string(),
         ];
-        let table = compute_derived(&spec, &cols, &rows).expect("merge 派生失败");
+        let table = compute_derived(&spec, &HashMap::new(), &cols, &rows).expect("merge 派生失败");
         // 前两行续行并入主记录 → 2 条记录
         assert_eq!(table.rows.len(), 2);
         let first = &table.rows[0];
