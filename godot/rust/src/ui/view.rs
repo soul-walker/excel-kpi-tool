@@ -4,17 +4,19 @@ use bevy::prelude::{Component, Resource};
 use godot_bevy::interop::GodotNodeHandle;
 use godot_bevy::prelude::NodeTreeView;
 
-/// 运行台宿主实体标记（便于等待 GodotScene 生成完成）。
+/// 页面实体标记（供路由切页）。
 #[derive(Component)]
 pub struct UiHost;
 
-/// ui.tscn 的类型化视图。
+/// run_console.tscn 的类型化视图。
 #[derive(NodeTreeView)]
 pub struct UiNodes {
-    #[node("Margin/VBox/PathRow/SchemePath")]
-    pub scheme_path: GodotNodeHandle,
-    #[node("Margin/VBox/PathRow/MonthDir")]
-    pub month_dir: GodotNodeHandle,
+    #[node("Margin/VBox/SchemeRow/SchemeSelect")]
+    pub scheme_select: GodotNodeHandle,
+    #[node("Margin/VBox/MonthRow/MonthDirLabel")]
+    pub month_dir_label: GodotNodeHandle,
+    #[node("MonthDirDialog")]
+    pub month_dialog: GodotNodeHandle,
     #[node("Margin/VBox/ActionRow/ValidateBtn")]
     pub validate_btn: GodotNodeHandle,
     #[node("Margin/VBox/ActionRow/DryRunBtn")]

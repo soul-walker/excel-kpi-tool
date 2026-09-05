@@ -2,8 +2,9 @@
 //!
 //! - `events`：按钮/导航 typed 事件；
 //! - `view`：类型化节点视图（NodeTreeView）与句柄资源；
+//! - `schemes`：用户方案库（user://schemes）位置与播种；
 //! - `nav`：主场景路由（顶栏导航 → 页面场景的生成/切换）；
-//! - `setup`：运行台场景节点句柄解析；
+//! - `setup`：运行台场景节点句柄解析与初始化；
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
 //! - `devshot`：开发自检（KPI_SHOT=1 截图）。
 
@@ -11,11 +12,12 @@ pub mod devshot;
 pub mod events;
 pub mod handlers;
 pub mod nav;
+pub mod schemes;
 pub mod setup;
 pub mod view;
 
 use bevy::app::{App, Plugin};
-use events::{RunClicked, ShowRunPage, ValidateClicked};
+use events::{BrowseMonthClicked, MonthDirPicked, RunClicked, ShowRunPage, ValidateClicked};
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
 
@@ -27,7 +29,9 @@ impl Plugin for UiPlugin {
         app.add_plugins(GodotDefaultPlugins)
             .add_plugins(GodotSignalsPlugin::<ValidateClicked>::default())
             .add_plugins(GodotSignalsPlugin::<RunClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<ShowRunPage>::default());
+            .add_plugins(GodotSignalsPlugin::<ShowRunPage>::default())
+            .add_plugins(GodotSignalsPlugin::<BrowseMonthClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<MonthDirPicked>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<nav::ContentHost>();
@@ -41,6 +45,8 @@ impl Plugin for UiPlugin {
 
         app.add_observer(handlers::on_validate_clicked);
         app.add_observer(handlers::on_run_clicked);
+        app.add_observer(handlers::on_browse_month);
+        app.add_observer(handlers::on_month_dir_picked);
         app.add_observer(nav::on_show_run_page);
     }
 }

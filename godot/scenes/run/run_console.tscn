@@ -26,29 +26,38 @@ theme_override_constants/separation = 8
 
 [node name="Title" type="Label" parent="Margin/VBox"]
 layout_mode = 2
-text = "KPI 绩效方案工具 · M2（godot-bevy，零 GDScript）"
+text = "运行台 · 月度绩效"
 
-[node name="PathRow" type="HBoxContainer" parent="Margin/VBox"]
+[node name="SchemeRow" type="HBoxContainer" parent="Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SchemeLabel" type="Label" parent="Margin/VBox/PathRow"]
+[node name="SchemeLabel" type="Label" parent="Margin/VBox/SchemeRow"]
 layout_mode = 2
 text = "方案："
 
-[node name="SchemePath" type="LineEdit" parent="Margin/VBox/PathRow"]
+[node name="SchemeSelect" type="OptionButton" parent="Margin/VBox/SchemeRow"]
 layout_mode = 3
 size_flags_horizontal = 3
-text = "res://../schemes/高中月绩效复刻.json"
 
-[node name="MonthLabel" type="Label" parent="Margin/VBox/PathRow"]
+[node name="MonthRow" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MonthLabel" type="Label" parent="Margin/VBox/MonthRow"]
 layout_mode = 2
 text = "月份目录："
 
-[node name="MonthDir" type="LineEdit" parent="Margin/VBox/PathRow"]
+[node name="MonthDirLabel" type="Label" parent="Margin/VBox/MonthRow"]
 layout_mode = 3
 size_flags_horizontal = 3
-text = "res://../testdata/2023-09"
+text = "（未选择）"
+clip_text = true
+tooltip_text = "当前月份台账目录"
+
+[node name="MonthPickBtn" type="Button" parent="Margin/VBox/MonthRow"]
+layout_mode = 2
+text = "选择…"
 
 [node name="ActionRow" type="HBoxContainer" parent="Margin/VBox"]
 layout_mode = 2
@@ -71,3 +80,9 @@ layout_mode = 2
 size_flags_vertical = 3
 bbcode_enabled = true
 scroll_following = true
+
+[node name="MonthDirDialog" type="FileDialog" parent="."]
+title = "选择月份台账目录"
+initial_position = 1
+size = Vector2i(760, 520)
+file_mode = 2

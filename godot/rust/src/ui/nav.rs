@@ -3,10 +3,11 @@
 
 use bevy::ecs::observer::On;
 use bevy::prelude::{Commands, Component, Entity, Name, Query, Res, ResMut, Resource};
+use godot::builtin::GString;
 use godot_bevy::prelude::{GodotNodeHandle, GodotScene, GodotSignals};
 use tracing::{info, warn};
 
-use super::events::ShowRunPage;
+use super::events::{BrowseMonthClicked, MonthDirPicked, RunClicked, ShowRunPage, ValidateClicked};
 use super::view::{UiHost, UiRefs};
 
 /// 内容宿主（main.tscn 的 Content 节点），页面场景都挂到这里。
@@ -65,12 +66,37 @@ fn spawn_run_page(commands: &mut Commands, host: Option<GodotNodeHandle>, active
     if let Some(entity) = active.0.take() {
         commands.entity(entity).despawn();
     }
-    let entity = commands
-        .spawn((
-            UiHost,
-            PageRoot,
-            GodotScene::from_path("res://scenes/run/run_console.tscn").with_parent(host),
-        ))
-        .id();
+    let scene = GodotScene::from_path("res://scenes/run/run_console.tscn")
+        .with_parent(host)
+        // 运行台页内按钮/对话框信号
+        .with_signal_connection(
+            "Margin/VBox/ActionRow/ValidateBtn",
+            "pressed",
+            |_args, _node, _entity| Some(ValidateClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/ActionRow/DryRunBtn",
+            "pressed",
+            |_args, _node, _entity| Some(RunClicked { dry_run: true }),
+        )
+        .with_signal_connection(
+            "Margin/VBox/ActionRow/RunBtn",
+            "pressed",
+            |_args, _node, _entity| Some(RunClicked { dry_run: false }),
+        )
+        .with_signal_connection(
+            "Margin/VBox/MonthRow/MonthPickBtn",
+            "pressed",
+            |_args, _node, _entity| Some(BrowseMonthClicked),
+        )
+        .with_signal_connection("MonthDirDialog", "dir_selected", |args, _node, _entity| {
+            let dir = args
+                .first()
+                .and_then(|v| v.try_to::<GString>().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            Some(MonthDirPicked { dir })
+        });
+    let entity = commands.spawn((UiHost, PageRoot, scene)).id();
     active.0 = Some(entity);
 }

@@ -90,3 +90,36 @@ pub fn render_result(raw: &str) -> String {
 fn err_json(msg: &str) -> String {
     serde_json::json!({ "ok": false, "error": msg }).to_string()
 }
+
+// ---------- 方案库：项目用户目录（user://schemes）的维护 ----------
+
+/// 目标目录没有任何 .json 时，从 source 目录复制一份样例方案（首次使用播种）。
+pub fn seed_schemes_if_empty(source_dir: &str, dest_dir: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest_dir)?;
+    if list_json_names(dest_dir).is_empty()
+        && let Ok(entries) = std::fs::read_dir(source_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                let name = path.file_name().unwrap_or_default();
+                std::fs::copy(&path, std::path::Path::new(dest_dir).join(name))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 列出目录下所有 `.json` 文件名（排序）。
+pub fn list_json_names(dir: &str) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
