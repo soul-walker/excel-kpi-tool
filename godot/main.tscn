@@ -7,3 +7,33 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="Shell" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="NavBar" type="PanelContainer" parent="Shell"]
+layout_mode = 2
+
+[node name="NavHBox" type="HBoxContainer" parent="Shell/NavBar"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AppTitle" type="Label" parent="Shell/NavBar/NavHBox"]
+layout_mode = 2
+text = "KPI 绩效方案工具"
+
+[node name="RunNavBtn" type="Button" parent="Shell/NavBar/NavHBox"]
+layout_mode = 2
+text = "运行台"
+toggle_mode = true
+button_pressed = true
+
+[node name="Content" type="Control" parent="Shell"]
+layout_mode = 2
+size_flags_vertical = 3
+clip_contents = true
