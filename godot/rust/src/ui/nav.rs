@@ -10,10 +10,10 @@ use tracing::{info, warn};
 use super::derived::{DerivedDetail as DvDetail, DerivedListRows as DvList};
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddDerivedMapClicked,
-    AddSourceClicked, BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked,
-    EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
-    MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
+    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
+    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
+    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RunClicked, ShowEditorPage,
+    ShowRunPage, ValidateClicked,
 };
 use super::sources::{ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{UiHost, UiRefs};
@@ -218,11 +218,6 @@ fn spawn_editor_page(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow/AddDerivedBtn",
             "pressed",
             |_args, _node, _entity| Some(AddDerivedClicked),
-        )
-        .with_signal_connection(
-            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead/AddMapBtn",
-            "pressed",
-            |_args, _node, _entity| Some(AddDerivedMapClicked),
         )
         .with_signal_connection(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead/AddFieldBtn",

@@ -23,9 +23,8 @@ pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddDerivedMapClicked,
-    AddSourceClicked, BrowseMonthClicked, ColRemoveClicked, DerivedDetailClicked,
-    DerivedFieldRemoveClicked, DerivedMapRemoveClicked, DerivedRemoveClicked,
+    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
+    ColRemoveClicked, DerivedDetailClicked, DerivedFieldRemoveClicked, DerivedRemoveClicked,
     EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
     EditorSchemePicked, EditorValidateClicked, MonthDirPicked, ParamRemoveClicked, ParamTypeChosen,
     ParamValueEdited, RunClicked, ShowEditorPage, ShowRunPage, SourceColsClicked,
@@ -63,8 +62,6 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<AddDerivedClicked>::default())
             .add_plugins(GodotSignalsPlugin::<DerivedRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<DerivedDetailClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<AddDerivedMapClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<DerivedMapRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<AddDerivedFieldClicked>::default())
             .add_plugins(GodotSignalsPlugin::<DerivedFieldRemoveClicked>::default());
 
@@ -113,8 +110,6 @@ impl Plugin for UiPlugin {
         app.add_observer(derived::on_add_derived);
         app.add_observer(derived::on_remove_derived);
         app.add_observer(derived::on_derived_detail);
-        app.add_observer(derived::on_add_map);
-        app.add_observer(derived::on_remove_map);
         app.add_observer(derived::on_add_field);
         app.add_observer(derived::on_remove_field);
         app.add_observer(nav::on_show_run_page);

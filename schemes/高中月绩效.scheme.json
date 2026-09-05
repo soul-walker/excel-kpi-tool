@@ -67,9 +67,9 @@
         "id": "bukei",
         "from": "qingjia",
         "when": "替上课老师 != ''",
-        "map": { "姓名": "替上课老师", "节数": "节数" },
         "group_by": "姓名",
-        "fields": [
+        "columns": [
+          { "name": "姓名", "expr": "替上课老师" },
           { "name": "节数", "expr": "SUM(节数)" },
           { "name": "费用", "expr": "节数 * 7" }
         ]

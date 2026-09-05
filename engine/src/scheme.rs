@@ -11,8 +11,7 @@
 //! 只有“请假替上课”这类一条记录牵涉两个人（请假人 + 替课老师）的台账，才需要派生“另一方视角”
 //! 的视图（把行内他人列映射成新 key）。因此 derived 为**单输入**行视图（输入可为 source 或先前
 //! derived），靠 map/merge/when/group 表达视角变换，**不需要多表 join/union**（评审确认无此场景）。
-
-use std::collections::BTreeMap;
+//! - 存储形态 = 单个 JSON 文件（版本化迁移，见 `VersionedScheme`）。
 
 use serde::{Deserialize, Serialize};
 
@@ -30,9 +29,17 @@ pub struct VersionedScheme {
 }
 
 impl VersionedScheme {
-    /// 从 JSON 文本加载并校验版本。
+    /// 从 JSON 文本加载并校验版本（含旧版 derived 的 map/fields → columns 迁移）。
     pub fn from_json_str(s: &str) -> Result<Self> {
-        let parsed: Self = serde_json::from_str(s)?;
+        let mut value: serde_json::Value = serde_json::from_str(s)?;
+        if let Some(ds) = value
+            .get_mut("scheme")
+            .and_then(|s| s.get_mut("derived"))
+            .and_then(|v| v.as_array_mut())
+        {
+            migrate_legacy_derived(ds);
+        }
+        let parsed: Self = serde_json::from_value(value)?;
         if parsed.schema_version != SCHEMA_VERSION {
             return Err(Error::UnsupportedSchema(
                 parsed.schema_version,
@@ -45,6 +52,52 @@ impl VersionedScheme {
     /// 输出为格式化 JSON（保存用）。
     pub fn to_json_pretty(&self) -> Result<String> {
         Ok(serde_json::to_string_pretty(self)?)
+    }
+}
+
+/// 旧版派生用 `map`(目标←源) + `fields`(name/expr) 两段表达输出列，
+/// 现合并为单一 `columns`（`目标←源` 即 `expr = 源列`）。此处把旧 JSON 结构原位迁移。
+fn migrate_legacy_derived(ds: &mut [serde_json::Value]) {
+    for d in ds.iter_mut() {
+        let has_columns = d
+            .get("columns")
+            .and_then(|c| c.as_array())
+            .is_some_and(|c| !c.is_empty());
+        if has_columns {
+            if let Some(o) = d.as_object_mut() {
+                o.remove("map");
+                o.remove("fields");
+            }
+            continue;
+        }
+        let mut cols: Vec<serde_json::Value> = Vec::new();
+        if let Some(map) = d.get("map").and_then(|m| m.as_object()) {
+            for (to, src) in map {
+                cols.push(serde_json::json!({
+                    "name": to,
+                    "expr": src.as_str().unwrap_or(""),
+                }));
+            }
+        }
+        if let Some(fields) = d.get("fields").and_then(|f| f.as_array()) {
+            for f in fields {
+                let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let expr = f.get("expr").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    cols.push(serde_json::json!({
+                        "name": name,
+                        "expr": if expr.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(expr.into()) }
+                    }));
+                }
+            }
+        }
+        if !cols.is_empty() {
+            d["columns"] = serde_json::Value::Array(cols);
+        }
+        if let Some(o) = d.as_object_mut() {
+            o.remove("map");
+            o.remove("fields");
+        }
     }
 }
 
@@ -207,8 +260,23 @@ pub struct MergeSpec {
     pub on: Vec<String>,
 }
 
-/// 派生明细（表视图）：先做行整理（主从合并），再做过滤 → 字段映射 → 分组聚合，
-/// 得到仍带 key 的新明细。`from` 可引用 source 或先前 derived（视图可链式叠加）。
+/// 派生视图的一列：`name` = 输出列名；`expr` = 取值表达式。
+/// - 空（None）：逐行透传输入表的同名列（“从原表直接带出”）；
+/// - 普通表达式（如 `替上课老师`、`节数 * 7`）：逐行计算，可引用输入列或先前列；
+/// - 聚合表达式（如 `SUM(节数)`）：需配合 `group_by`，在组上计算。
+///
+/// 旧版的“列映射”（目标列 ← 源列）即 `expr = 源列名` 的特例，已合并进来。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ColumnDef {
+    pub name: String,
+    #[serde(default)]
+    pub expr: Option<String>,
+}
+
+/// 派生明细（表视图）：先做行整理（主从合并），再做过滤，最后按“视图列定义”
+/// 逐行/分组产出新表。`from` 可引用 source 或先前 derived（视图可链式叠加）。
+/// `columns` 为空时表示“原样透传输入行”（配合 merge/when 作行整理视图）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DerivedSpec {
@@ -221,15 +289,12 @@ pub struct DerivedSpec {
     /// 行过滤表达式（空 = 全部行）。
     #[serde(default)]
     pub when: Option<String>,
-    /// 目标 alias -> 来源列 alias 的简单映射。
-    #[serde(default)]
-    pub map: BTreeMap<String, String>,
-    /// 若设置，先按该列分组再计算 fields。
+    /// 若设置，先按某“视图列”分组再计算该组上的聚合列。
     #[serde(default)]
     pub group_by: Option<String>,
-    /// 派生后的字段计算。
+    /// 视图输出列定义（顺序即输出顺序；空 = 原样透传）。
     #[serde(default)]
-    pub fields: Vec<FieldExpr>,
+    pub columns: Vec<ColumnDef>,
 }
 
 /// 聚合指标（按 key 对某明细求值）。
@@ -521,13 +586,19 @@ impl Scheme {
                     format!("from 引用了不存在的 id: {}", d.from),
                 ));
             }
+            // 视图列名唯一
+            check_unique(
+                &mut out,
+                &format!("derived.{} 的输出列", d.id),
+                d.columns.iter().map(|c| c.name.as_str()),
+            );
+            // group_by 必须指向某个视图列
             if let Some(gb) = &d.group_by
-                && !d.map.contains_key(gb)
-                && !d.fields.iter().any(|f| f.name == *gb)
+                && !d.columns.iter().any(|c| c.name == *gb)
             {
                 out.push(Issue::error(
                     format!("derived.{}.group_by", d.id),
-                    format!("group_by 引用了不存在的输出列: {gb}"),
+                    format!("group_by 引用了不存在的视图列: {gb}"),
                 ));
             }
         }

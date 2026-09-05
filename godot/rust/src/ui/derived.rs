@@ -23,8 +23,8 @@ use tracing::info;
 
 use super::editor::{EditorDoc, EditorNodes, EditorRefs};
 use super::events::{
-    AddDerivedClicked, AddDerivedFieldClicked, AddDerivedMapClicked, DerivedDetailClicked,
-    DerivedFieldRemoveClicked, DerivedMapRemoveClicked, DerivedRemoveClicked,
+    AddDerivedClicked, AddDerivedFieldClicked, DerivedDetailClicked, DerivedFieldRemoveClicked,
+    DerivedRemoveClicked,
 };
 use super::view::{LogKind, log_line};
 
@@ -61,12 +61,6 @@ pub struct DerivedDetail {
     pub when_edit: Option<Gd<LineEdit>>,
     /// 分组列输入。
     pub group_edit: Option<Gd<LineEdit>>,
-    /// 映射目标列名输入。
-    pub map_dst: Vec<Gd<LineEdit>>,
-    /// 映射源列名输入。
-    pub map_src: Vec<Gd<LineEdit>>,
-    pub map_del: Vec<(i32, Gd<Button>)>,
-    pub map_connected: usize,
     pub field_name: Vec<Gd<LineEdit>>,
     pub field_expr: Vec<Gd<LineEdit>>,
     pub field_del: Vec<(i32, Gd<Button>)>,
@@ -80,10 +74,6 @@ impl DerivedDetail {
         self.on_edit = None;
         self.when_edit = None;
         self.group_edit = None;
-        self.map_dst.clear();
-        self.map_src.clear();
-        self.map_del.clear();
-        self.map_connected = 0;
         self.field_name.clear();
         self.field_expr.clear();
         self.field_del.clear();
@@ -259,8 +249,6 @@ fn render_detail(
     let mut on_edit = godot.get::<LineEdit>(nodes.derived_on_edit);
     let mut when_edit = godot.get::<LineEdit>(nodes.derived_when_edit);
     let mut gb_edit = godot.get::<LineEdit>(nodes.derived_group_edit);
-    let mut map_box = godot.get::<VBoxContainer>(nodes.derived_map_box);
-    clear_children(&mut map_box);
     let mut field_box = godot.get::<VBoxContainer>(nodes.derived_field_box);
     clear_children(&mut field_box);
 
@@ -305,81 +293,44 @@ fn render_detail(
         when_edit.set_text(when);
         gb_edit.set_text(gb);
 
-        // 列映射表格（含表头）
-        let map = d
-            .get("map")
-            .and_then(|m| m.as_object())
-            .cloned()
-            .unwrap_or_default();
-        let mut grid = GridContainer::new_alloc();
-        grid.set_name("DerivedMapGrid");
-        grid.set_columns(3);
-        grid.add_theme_constant_override("h_separation", 6);
-        grid.add_theme_constant_override("v_separation", 2);
-        let gray = godot::builtin::Color::from_rgb(0.62, 0.62, 0.62);
-        head_label(&mut grid, "目标列名", 150.0, false, gray);
-        head_label(&mut grid, "源列名", 0.0, true, gray);
-        head_label(&mut grid, "删除", 0.0, false, gray);
-        if map.is_empty() {
-            let mut hint = Label::new_alloc();
-            hint.set_text(
-                "无映射：整行原样透传（点「+ 映射」可把他人列改名成目标列，实现换人视角）",
-            );
-            hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
-            grid.add_child(&hint);
-        }
-        for (dst, src) in &map {
-            let mut dst_e = LineEdit::new_alloc();
-            dst_e.set_text(dst);
-            dst_e.set_placeholder("目标列名");
-            dst_e.set_custom_minimum_size(Vector2::new(150.0, 0.0));
-            grid.add_child(&dst_e);
-            let mut src_e = LineEdit::new_alloc();
-            src_e.set_text(src.as_str().unwrap_or(""));
-            src_e.set_placeholder("源列名");
-            src_e.set_h_size_flags(SizeFlags::EXPAND_FILL);
-            grid.add_child(&src_e);
-            let mut del = Button::new_alloc();
-            del.set_text("删除");
-            grid.add_child(&del);
-            let idx = detail.map_del.len() as i32;
-            detail.map_dst.push(dst_e);
-            detail.map_src.push(src_e);
-            detail.map_del.push((idx, del));
-        }
-        map_box.add_child(&grid);
-
-        // 派生字段表格（含表头）
-        let fields = d
-            .get("fields")
+        // 视图列表格（含表头）：列名 + 表达式（expr 空 = 同名透传）
+        let columns = d
+            .get("columns")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
         let mut grid = GridContainer::new_alloc();
-        grid.set_name("DerivedFieldGrid");
+        grid.set_name("DerivedColGrid");
         grid.set_columns(3);
         grid.add_theme_constant_override("h_separation", 6);
         grid.add_theme_constant_override("v_separation", 2);
-        head_label(&mut grid, "字段名", 120.0, false, gray);
-        head_label(&mut grid, "表达式（分组时可写 SUM(列)）", 0.0, true, gray);
+        let gray = godot::builtin::Color::from_rgb(0.62, 0.62, 0.62);
+        head_label(&mut grid, "列名", 130.0, false, gray);
+        head_label(
+            &mut grid,
+            "表达式（写源列名=改名；留空=同名透传；可写 SUM(列)）",
+            0.0,
+            true,
+            gray,
+        );
         head_label(&mut grid, "删除", 0.0, false, gray);
-        if fields.is_empty() {
+        if columns.is_empty() {
             let mut hint = Label::new_alloc();
-            hint.set_text("无字段：本派生作为明细视图供后续聚合/引用（点「+ 字段」添加计算列）");
+            hint.set_text("无视图列：派生原样透传输入行（合并/过滤视图）或点「+ 视图列」定义输出");
             hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
             grid.add_child(&hint);
         }
-        for f in &fields {
+        for f in &columns {
             let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let expr = f.get("expr").and_then(|v| v.as_str()).unwrap_or("");
             let mut n_e = LineEdit::new_alloc();
             n_e.set_text(name);
-            n_e.set_placeholder("字段名");
-            n_e.set_custom_minimum_size(Vector2::new(120.0, 0.0));
+            n_e.set_placeholder("列名");
+            n_e.set_custom_minimum_size(Vector2::new(130.0, 0.0));
             grid.add_child(&n_e);
             let mut e_e = LineEdit::new_alloc();
             e_e.set_text(expr);
-            e_e.set_placeholder("如 节数 * 7 或 SUM(节数)");
+            e_e.set_placeholder("如 替上课老师 / 节数 * 7 / SUM(节数)");
             e_e.set_h_size_flags(SizeFlags::EXPAND_FILL);
             grid.add_child(&e_e);
             let mut del = Button::new_alloc();
@@ -403,8 +354,7 @@ fn render_detail(
         when_edit.set_text("");
         on_edit.set_text("");
         gb_edit.set_text("");
-        empty_hint(&mut map_box, "无映射", "DerivedMapHint");
-        empty_hint(&mut field_box, "无字段", "DerivedFieldHint");
+        empty_hint(&mut field_box, "无视图列", "DerivedFieldHint");
     }
 }
 
@@ -416,7 +366,6 @@ pub fn connect_derived_signals(
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     detail_sig: GodotSignals<DerivedDetailClicked>,
     del_sig: GodotSignals<DerivedRemoveClicked>,
-    map_del_sig: GodotSignals<DerivedMapRemoveClicked>,
     field_del_sig: GodotSignals<DerivedFieldRemoveClicked>,
 ) {
     while list.connected_detail < list.detail_buttons.len() {
@@ -434,14 +383,6 @@ pub fn connect_derived_signals(
             Some(DerivedRemoveClicked { index })
         });
         list.connected_del += 1;
-    }
-    while detail.map_connected < detail.map_del.len() {
-        let (index, button) = detail.map_del[detail.map_connected].clone();
-        let handle = GodotNodeHandle::from_instance_id(button.instance_id());
-        map_del_sig.connect(handle, "pressed", None, move |_a, _n, _e| {
-            Some(DerivedMapRemoveClicked { index })
-        });
-        detail.map_connected += 1;
     }
     while detail.field_connected < detail.field_del.len() {
         let (index, button) = detail.field_del[detail.field_connected].clone();
@@ -474,8 +415,7 @@ pub fn on_add_derived(
             "id": format!("派生{}", ds.len() + 1),
             "from": candidates.first().cloned().unwrap_or_default(),
             "when": serde_json::Value::Null,
-            "map": {},
-            "fields": []
+            "columns": []
         }));
         ds.len()
     };
@@ -484,7 +424,7 @@ pub fn on_add_derived(
     log_plain(
         nodes,
         &mut godot,
-        &format!("已新增派生（共 {n} 个）：在详情面板编辑 id/来源/映射/字段"),
+        &format!("已新增派生（共 {n} 个）：在详情面板编辑 id/来源/视图列"),
     );
 }
 
@@ -545,85 +485,6 @@ pub fn on_derived_detail(
     log_plain(nodes, &mut godot, &format!("编辑派生：{id}"));
 }
 
-pub fn on_add_map(
-    _trigger: On<AddDerivedMapClicked>,
-    refs: Res<EditorRefs>,
-    mut doc: ResMut<EditorDoc>,
-    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
-    mut godot: GodotAccess,
-) {
-    let Some(nodes) = nodes_of(&refs) else { return };
-    let sel = doc.selected_derived;
-    let key = {
-        let Some(ds) = derived_mut(&mut doc) else {
-            return;
-        };
-        let Some(d) = ds.get_mut(sel as usize) else {
-            log_err(nodes, &mut godot, "请先选择一个派生");
-            return;
-        };
-        let obj = d.as_object_mut().expect("derived 应为对象");
-        let m = obj
-            .entry("map".to_string())
-            .or_insert_with(|| serde_json::json!({}));
-        let Some(map) = m.as_object_mut() else {
-            log_err(nodes, &mut godot, "map 应为对象");
-            return;
-        };
-        let mut n = map.len() + 1;
-        loop {
-            let key = format!("列{n}");
-            if !map.contains_key(&key) {
-                map.insert(key.clone(), serde_json::Value::String(String::new()));
-                break key;
-            }
-            n += 1;
-        }
-    };
-    render_detail(nodes, &doc, &mut detail, &mut godot);
-    log_plain(
-        nodes,
-        &mut godot,
-        &format!("已加映射 {key}（填 目标列名 与 源列名）"),
-    );
-}
-
-pub fn on_remove_map(
-    trigger: On<DerivedMapRemoveClicked>,
-    refs: Res<EditorRefs>,
-    mut doc: ResMut<EditorDoc>,
-    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
-    mut godot: GodotAccess,
-) {
-    let Some(nodes) = nodes_of(&refs) else { return };
-    let idx = trigger.event().index as usize;
-    let sel = doc.selected_derived as usize;
-    let removed_dst: String = {
-        let Some(ds) = derived_mut(&mut doc) else {
-            return;
-        };
-        let Some(d) = ds.get_mut(sel) else { return };
-        let Some(map) = d.get_mut("map").and_then(|m| m.as_object_mut()) else {
-            return;
-        };
-        let mut removed = String::new();
-        if idx < detail.map_dst.len() {
-            let dst = detail.map_dst[idx].get_text().to_string();
-            let dst = dst.trim().to_string();
-            if !dst.is_empty() && map.remove(&dst).is_some() {
-                removed = dst;
-            }
-        }
-        removed
-    };
-    render_detail(nodes, &doc, &mut detail, &mut godot);
-    if removed_dst.is_empty() {
-        log_err(nodes, &mut godot, "该行目标列为空，已忽略删除");
-    } else {
-        log_plain(nodes, &mut godot, &format!("已删除映射：{removed_dst}"));
-    }
-}
-
 pub fn on_add_field(
     _trigger: On<AddDerivedFieldClicked>,
     refs: Res<EditorRefs>,
@@ -642,21 +503,25 @@ pub fn on_add_field(
             return;
         }
         let d = &mut ds[sel];
-        if d.get("fields").and_then(|f| f.as_array()).is_none() {
-            d["fields"] = serde_json::Value::Array(Vec::new());
+        if d.get("columns").and_then(|f| f.as_array()).is_none() {
+            d["columns"] = serde_json::Value::Array(Vec::new());
         }
-        let fields = d
-            .get_mut("fields")
+        let columns = d
+            .get_mut("columns")
             .and_then(|f| f.as_array_mut())
             .expect("刚创建");
-        let n = fields.len();
-        fields.push(serde_json::json!({
-            "name": format!("字段{}", n + 1),
+        let n = columns.len();
+        columns.push(serde_json::json!({
+            "name": format!("列{}", n + 1),
             "expr": serde_json::Value::Null
         }));
     }
     render_detail(nodes, &doc, &mut detail, &mut godot);
-    log_plain(nodes, &mut godot, "已加一个字段（填 字段名 与 表达式）");
+    log_plain(
+        nodes,
+        &mut godot,
+        "已加一个视图列（填 列名；表达式留空=同名透传）",
+    );
 }
 
 pub fn on_remove_field(
@@ -689,7 +554,7 @@ pub fn on_remove_field(
         name
     };
     render_detail(nodes, &doc, &mut detail, &mut godot);
-    log_plain(nodes, &mut godot, &format!("已删除字段：{removed}"));
+    log_plain(nodes, &mut godot, &format!("已删除视图列：{removed}"));
 }
 
 // ---------- 写回（保存 / 校验前调用） ----------
@@ -755,41 +620,28 @@ pub fn write_back(
         .unwrap_or_default();
     let gb = gb.trim().to_string();
 
-    // map
-    let mut map = serde_json::Map::new();
-    for j in 0..detail.map_dst.len() {
-        let dst = detail.map_dst[j].get_text().to_string();
-        let src = detail.map_src[j].get_text().to_string();
-        let dst = dst.trim().to_string();
-        let src = src.trim().to_string();
-        if dst.is_empty() && src.is_empty() {
-            continue;
-        }
-        if dst.is_empty() || src.is_empty() {
-            return Err(format!("派生[{id}]：映射行 {} 的目标/源列不能为空", j + 1));
-        }
-        if map.contains_key(&dst) {
-            return Err(format!("派生[{id}]：映射目标重复：{dst}"));
-        }
-        map.insert(dst, serde_json::Value::String(src));
-    }
-    // fields
-    let mut fields = Vec::new();
+    // 视图列（列名 + 表达式；expr 空 = 同名透传）
+    let mut columns = Vec::new();
+    let mut seen_names: Vec<String> = Vec::new();
     for j in 0..detail.field_name.len() {
         let name = detail.field_name[j].get_text().to_string();
         let name = name.trim().to_string();
         if name.is_empty() {
             continue;
         }
+        if seen_names.iter().any(|n| n == &name) {
+            return Err(format!("派生[{id}]：视图列名重复：{name}"));
+        }
+        seen_names.push(name.clone());
         let expr = detail.field_expr[j].get_text().to_string();
         let expr = expr.trim().to_string();
-        let mut f = serde_json::json!({ "name": name });
+        let mut col = serde_json::json!({ "name": name });
         if expr.is_empty() {
-            f["expr"] = serde_json::Value::Null;
+            col["expr"] = serde_json::Value::Null;
         } else {
-            f["expr"] = serde_json::Value::String(expr);
+            col["expr"] = serde_json::Value::String(expr);
         }
-        fields.push(f);
+        columns.push(col);
     }
 
     let mut d = serde_json::json!({ "id": id, "from": from });
@@ -799,11 +651,12 @@ pub fn write_back(
     if !when.is_empty() {
         d["when"] = serde_json::Value::String(when);
     }
-    d["map"] = serde_json::Value::Object(map);
+    if !columns.is_empty() {
+        d["columns"] = serde_json::Value::Array(columns);
+    }
     if !gb.is_empty() {
         d["group_by"] = serde_json::Value::String(gb);
     }
-    d["fields"] = serde_json::Value::Array(fields);
     ds[sel] = d;
     Ok(())
 }
@@ -825,6 +678,58 @@ fn table_candidates_in(raw: &serde_json::Value) -> Vec<String> {
         }
     }
     out
+}
+
+/// GUI 载入时的旧版派生迁移：`map`(目标←源) + `fields` → 单一 `columns`。
+pub fn migrate_legacy(raw: &mut serde_json::Value) {
+    let Some(ds) = raw
+        .get_mut("scheme")
+        .and_then(|s| s.get_mut("derived"))
+        .and_then(|v| v.as_array_mut())
+    else {
+        return;
+    };
+    for d in ds.iter_mut() {
+        let has_columns = d
+            .get("columns")
+            .and_then(|c| c.as_array())
+            .is_some_and(|c| !c.is_empty());
+        if has_columns {
+            if let Some(o) = d.as_object_mut() {
+                o.remove("map");
+                o.remove("fields");
+            }
+            continue;
+        }
+        let mut cols: Vec<serde_json::Value> = Vec::new();
+        if let Some(map) = d.get("map").and_then(|m| m.as_object()) {
+            for (to, src) in map {
+                cols.push(serde_json::json!({
+                    "name": to,
+                    "expr": src.as_str().unwrap_or(""),
+                }));
+            }
+        }
+        if let Some(fields) = d.get("fields").and_then(|f| f.as_array()) {
+            for f in fields {
+                let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let expr = f.get("expr").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    cols.push(serde_json::json!({
+                        "name": name,
+                        "expr": if expr.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(expr.into()) }
+                    }));
+                }
+            }
+        }
+        if !cols.is_empty() {
+            d["columns"] = serde_json::Value::Array(cols);
+        }
+        if let Some(o) = d.as_object_mut() {
+            o.remove("map");
+            o.remove("fields");
+        }
+    }
 }
 
 // ---------- 辅助 ----------

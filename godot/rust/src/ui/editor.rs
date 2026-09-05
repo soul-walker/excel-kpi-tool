@@ -77,8 +77,6 @@ pub struct EditorNodes {
         "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow/GroupEdit"
     )]
     pub derived_group_edit: GodotNodeHandle,
-    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapBox")]
-    pub derived_map_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldBox")]
     pub derived_field_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
@@ -325,7 +323,7 @@ fn load_current(
             return;
         }
     };
-    let raw: serde_json::Value = match serde_json::from_str(&raw_text) {
+    let mut raw: serde_json::Value = match serde_json::from_str(&raw_text) {
         Ok(v) => v,
         Err(e) => {
             log_err(nodes, godot, &format!("JSON 解析失败：{e}"));
@@ -342,6 +340,8 @@ fn load_current(
 
     doc.path = Some(path);
     doc.base = Some(base.clone());
+    // 旧版 derived 的 map/fields → columns 迁移
+    derived::migrate_legacy(&mut raw);
     doc.raw = Some(raw);
 
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);

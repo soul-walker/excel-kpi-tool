@@ -143,22 +143,22 @@ pub fn dev_shot_system(
         info!("KPI_SHOT: 已切到派生页签");
     }
     click_button(256, *frame, find("AddDerivedBtn"), "新增派生", &mut godot);
-    click_button(262, *frame, find("AddMapBtn"), "新增映射行", &mut godot);
-    click_button(268, *frame, find("AddFieldBtn"), "新增字段", &mut godot);
+    click_button(262, *frame, find("AddFieldBtn"), "新增视图列1", &mut godot);
+    click_button(268, *frame, find("AddFieldBtn"), "新增视图列2", &mut godot);
     if *frame == 278 {
         if let Some(e) = &ddetail.id_edit {
             e.clone().set_text("代课视角");
         }
-        if !ddetail.map_dst.is_empty() && !ddetail.map_src.is_empty() {
-            ddetail.map_dst[0].clone().set_text("姓名");
-            ddetail.map_src[0].clone().set_text("替上课老师");
+        if !ddetail.field_name.is_empty() && !ddetail.field_expr.is_empty() {
+            ddetail.field_name[0].clone().set_text("姓名");
+            ddetail.field_expr[0].clone().set_text("替上课老师");
+        }
+        if ddetail.field_name.len() >= 2 && ddetail.field_expr.len() >= 2 {
+            ddetail.field_name[1].clone().set_text("节数");
+            ddetail.field_expr[1].clone().set_text("SUM(节数)");
         }
         if let Some(g) = &ddetail.group_edit {
             g.clone().set_text("姓名");
-        }
-        if !ddetail.field_name.is_empty() && !ddetail.field_expr.is_empty() {
-            ddetail.field_name[0].clone().set_text("节数");
-            ddetail.field_expr[0].clone().set_text("SUM(节数)");
         }
         info!("KPI_SHOT: 已填派生（代课视角/姓名←替上课老师/SUM(节数)）");
     }

@@ -114,21 +114,11 @@ pub(crate) struct DerivedDetailClicked {
     pub index: i32,
 }
 
-/// 编辑器：“+ 映射”到当前派生。
-#[derive(Event, Debug, Clone, Copy)]
-pub(crate) struct AddDerivedMapClicked;
-
-/// 编辑器：删除当前派生的第 index 条映射。
-#[derive(Event, Debug, Clone, Copy)]
-pub(crate) struct DerivedMapRemoveClicked {
-    pub index: i32,
-}
-
-/// 编辑器：“+ 字段”到当前派生。
+/// 编辑器：“+ 视图列”到当前派生。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct AddDerivedFieldClicked;
 
-/// 编辑器：删除当前派生的第 index 个字段。
+/// 编辑器：删除当前派生的第 index 个视图列。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct DerivedFieldRemoveClicked {
     pub index: i32,

@@ -283,34 +283,17 @@ layout_mode = 3
 size_flags_horizontal = 3
 placeholder_text = "空 = 逐行；填列名 = 按该列归并后再算下方字段（字段可写 SUM(列)）"
 
-[node name="MapHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
-layout_mode = 2
-
-[node name="MapTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead"]
-layout_mode = 2
-text = "列映射（目标 = 源列；把他人列映射成姓名=换人视角）"
-size_flags_horizontal = 3
-
-[node name="AddMapBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead"]
-layout_mode = 2
-text = "+ 映射"
-
-[node name="MapBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 2
-
 [node name="FieldHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
 
 [node name="FieldTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2
-text = "派生字段（表达式；分组时可写 SUM(列)）"
+text = "视图列定义（列名 = 表达式；写源列名即映射/改名；expr 空 = 同名透传）"
 size_flags_horizontal = 3
 
 [node name="AddFieldBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2
-text = "+ 字段"
+text = "+ 视图列"
 
 [node name="FieldBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
