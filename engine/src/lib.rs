@@ -4,6 +4,7 @@
 //! M0 范围：crate 骨架 + 方案(scheme) v0.1 模型/静态校验 + 表格/工作簿抽象 + Bevy Plugin 挂载点。
 //! M1 范围：reader / calc DSL / DAG 执行 / writer（umya）→ 对拍 school-kpi 输出。
 
+pub mod calc;
 pub mod error;
 pub mod plugin;
 pub mod reader;
@@ -13,6 +14,7 @@ pub mod template;
 pub mod workbook;
 pub mod xmlpatch;
 
+pub use calc::{BinOp, Node, Value, eval, parse};
 pub use error::{Error, Result};
 pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_key};
 pub use scheme::{
