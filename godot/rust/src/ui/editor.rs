@@ -27,6 +27,7 @@ use super::events::{
     ParamValueEdited,
 };
 use super::schemes;
+use super::view::{LogKind, log_line};
 
 /// 编辑器页面实体标记。
 #[derive(Component)]
@@ -251,7 +252,7 @@ fn load_current(
         .get_text()
         .to_string();
     if file_name.is_empty() {
-        log(
+        log_warn(
             nodes,
             godot,
             "方案列表为空，请先新建方案或把 .json 放入用户方案目录",
@@ -262,14 +263,14 @@ fn load_current(
     let raw_text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) => {
-            log(nodes, godot, &format!("读取失败：{e}"));
+            log_err(nodes, godot, &format!("读取失败：{e}"));
             return;
         }
     };
     let raw: serde_json::Value = match serde_json::from_str(&raw_text) {
         Ok(v) => v,
         Err(e) => {
-            log(nodes, godot, &format!("JSON 解析失败：{e}"));
+            log_err(nodes, godot, &format!("JSON 解析失败：{e}"));
             return;
         }
     };
@@ -288,7 +289,7 @@ fn load_current(
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);
     godot.get::<LineEdit>(nodes.desc_edit).set_text(&desc);
     render_param_rows(nodes, doc, rows, godot);
-    log(
+    log_ok(
         nodes,
         godot,
         &format!("已载入：{base}（按名称/参数编辑后保存）"),
@@ -440,7 +441,7 @@ pub fn on_new_scheme_clicked(
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);
     godot.get::<LineEdit>(nodes.desc_edit).set_text("");
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
-    log(
+    log_ok(
         nodes,
         &mut godot,
         "已新建（未保存）：填写名称/描述与参数后点「保存」落盘",
@@ -457,15 +458,15 @@ pub fn on_add_param_clicked(
     let Some(nodes) = &refs.nodes else { return };
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建行时丢失。
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
-        log(nodes, &mut godot, &format!("新增参数中止：{err}"));
+        log_err(nodes, &mut godot, &format!("新增参数中止：{err}"));
         return;
     }
     let Some(raw) = &mut doc.raw else {
-        log(nodes, &mut godot, "尚未载入方案");
+        log_err(nodes, &mut godot, "尚未载入方案");
         return;
     };
     let Some(params) = raw["scheme"]["parameters"].as_array_mut() else {
-        log(nodes, &mut godot, "方案缺少 parameters 数组");
+        log_err(nodes, &mut godot, "方案缺少 parameters 数组");
         return;
     };
     let idx = params.len();
@@ -496,7 +497,7 @@ pub fn on_remove_param(
     let idx = trigger.event().index;
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建行时丢失。
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
-        log(nodes, &mut godot, &format!("删除参数中止：{err}"));
+        log_err(nodes, &mut godot, &format!("删除参数中止：{err}"));
         return;
     }
     let Some(raw) = &mut doc.raw else { return };
@@ -559,11 +560,13 @@ pub fn on_validate_clicked(
 ) {
     let Some(nodes) = &refs.nodes else { return };
     let Some(path) = &doc.path else {
-        log(nodes, &mut godot, "尚未载入方案");
+        log_err(nodes, &mut godot, "尚未载入方案");
         return;
     };
     let json = bridge::validate_scheme_json(path);
-    log(nodes, &mut godot, &bridge::render_result(&json));
+    let out = bridge::render_result(&json);
+    let kind = if out.ok { LogKind::Ok } else { LogKind::Err };
+    log_kind(nodes, &mut godot, kind, &out.text);
 }
 
 pub fn on_save_clicked(
@@ -575,7 +578,7 @@ pub fn on_save_clicked(
 ) {
     let Some(nodes) = &refs.nodes else { return };
     let Some(mut raw) = doc.raw.clone() else {
-        log(nodes, &mut godot, "尚未载入方案");
+        log_err(nodes, &mut godot, "尚未载入方案");
         return;
     };
 
@@ -583,7 +586,7 @@ pub fn on_save_clicked(
     let name_text = godot.get::<LineEdit>(nodes.name_edit).get_text();
     let new_base = normalize_base(&name_text.to_string());
     if new_base.is_empty() {
-        log(nodes, &mut godot, "保存失败：方案名称不能为空");
+        log_err(nodes, &mut godot, "保存失败：方案名称不能为空");
         return;
     }
     let desc = godot
@@ -602,7 +605,7 @@ pub fn on_save_clicked(
         raw["scheme"]["name"] = serde_json::Value::String(new_base.clone());
     }
     if let Err(err) = write_params(&mut raw, &rows) {
-        log(nodes, &mut godot, &format!("保存失败：{err}"));
+        log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }
 
@@ -610,12 +613,12 @@ pub fn on_save_clicked(
     let text = match serde_json::to_string_pretty(&raw) {
         Ok(t) => t,
         Err(e) => {
-            log(nodes, &mut godot, &format!("序列化方案失败：{e}"));
+            log_err(nodes, &mut godot, &format!("序列化方案失败：{e}"));
             return;
         }
     };
     if let Err(e) = std::fs::write(&new_path, text) {
-        log(nodes, &mut godot, &format!("保存失败：{e}"));
+        log_err(nodes, &mut godot, &format!("保存失败：{e}"));
         return;
     }
     // 改名保存：移除旧文件（新建草稿的旧路径通常不存在，忽略错误）。
@@ -633,7 +636,7 @@ pub fn on_save_clicked(
     doc.raw = Some(raw);
     // 刷新下拉并选中当前文件
     populate_scheme_select(nodes, &mut godot, Some(new_base.as_str()));
-    log(nodes, &mut godot, &format!("已保存：{new_path}{note}"));
+    log_ok(nodes, &mut godot, &format!("已保存：{new_path}{note}"));
 }
 
 /// 把参数行控件当前内容提交回 raw（新增/删除参数前调用，避免重建行丢编辑）。
@@ -716,7 +719,22 @@ fn json_display(v: &serde_json::Value) -> String {
 }
 
 fn log(nodes: &EditorNodes, godot: &mut GodotAccess, line: &str) {
+    log_kind(nodes, godot, LogKind::Plain, line);
+}
+
+fn log_ok(nodes: &EditorNodes, godot: &mut GodotAccess, line: &str) {
+    log_kind(nodes, godot, LogKind::Ok, line);
+}
+
+fn log_warn(nodes: &EditorNodes, godot: &mut GodotAccess, line: &str) {
+    log_kind(nodes, godot, LogKind::Warn, line);
+}
+
+fn log_err(nodes: &EditorNodes, godot: &mut GodotAccess, line: &str) {
+    log_kind(nodes, godot, LogKind::Err, line);
+}
+
+fn log_kind(nodes: &EditorNodes, godot: &mut GodotAccess, kind: LogKind, line: &str) {
     info!("{line}");
-    let mut log = godot.get::<RichTextLabel>(nodes.log);
-    log.append_text(&format!("{line}\n"));
+    log_line(&mut godot.get::<RichTextLabel>(nodes.log), kind, line);
 }

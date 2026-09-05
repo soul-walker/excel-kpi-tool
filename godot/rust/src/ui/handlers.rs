@@ -10,7 +10,7 @@ use crate::bridge;
 
 use super::events::{BrowseMonthClicked, MonthDirPicked, RunClicked, ValidateClicked};
 use super::schemes;
-use super::view::{UiNodes, UiRefs};
+use super::view::{LogKind, UiNodes, UiRefs, log_line};
 
 /// 当前选中的方案完整路径。
 fn selected_scheme_path(nodes: &UiNodes, godot: &mut GodotAccess) -> String {
@@ -29,17 +29,18 @@ fn month_dir(nodes: &UiNodes, godot: &mut GodotAccess) -> String {
         .to_string()
 }
 
-/// 把一行追加进日志区（RichTextLabel）。
-fn log_to_ui(nodes: &UiNodes, godot: &mut GodotAccess, line: &str) {
+/// 把一行追加进日志区（RichTextLabel，按 kind 着色）。
+fn log_to_ui(nodes: &UiNodes, godot: &mut GodotAccess, kind: LogKind, line: &str) {
     let mut log = godot.get::<RichTextLabel>(nodes.log);
-    log.append_text(&format!("{line}\n"));
+    log_line(&mut log, kind, line);
 }
 
-/// 把引擎返回的 JSON 结果同时输出到 tracing 与日志区。
+/// 把引擎返回的 JSON 结果同时输出到 tracing 与日志区（按 ok/err 着色）。
 fn append_result(nodes: &UiNodes, godot: &mut GodotAccess, json: &str) {
-    let pretty = bridge::render_result(json);
-    info!("{pretty}");
-    log_to_ui(nodes, godot, &pretty);
+    let out = bridge::render_result(json);
+    info!("{}", out.text);
+    let kind = if out.ok { LogKind::Ok } else { LogKind::Err };
+    log_line(&mut godot.get::<RichTextLabel>(nodes.log), kind, &out.text);
 }
 
 pub fn on_validate_clicked(
@@ -51,7 +52,12 @@ pub fn on_validate_clicked(
         return;
     };
     let scheme = selected_scheme_path(nodes, &mut godot);
-    log_to_ui(nodes, &mut godot, &format!("→ 校验 {scheme}"));
+    log_to_ui(
+        nodes,
+        &mut godot,
+        LogKind::Plain,
+        &format!("→ 校验 {scheme}"),
+    );
     append_result(nodes, &mut godot, &bridge::validate_scheme_json(&scheme));
 }
 
@@ -67,7 +73,12 @@ pub fn on_run_clicked(trigger: On<RunClicked>, refs: Res<UiRefs>, mut godot: God
     } else {
         "实际运行"
     };
-    log_to_ui(nodes, &mut godot, &format!("→ {label}：{scheme} @ {month}"));
+    log_to_ui(
+        nodes,
+        &mut godot,
+        LogKind::Plain,
+        &format!("→ {label}：{scheme} @ {month}"),
+    );
 
     let json = bridge::run_scheme_json(&scheme, &month, dry);
     append_result(nodes, &mut godot, &json);

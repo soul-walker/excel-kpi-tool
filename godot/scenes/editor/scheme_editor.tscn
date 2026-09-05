@@ -128,5 +128,4 @@ layout_mode = 2
 
 [node name="Log" type="RichTextLabel" parent="Margin/VBox/Split/LogPanel"]
 layout_mode = 2
-bbcode_enabled = true
 scroll_following = true

@@ -60,6 +60,8 @@ pub fn dev_shot_system(
     click_button(90, *frame, find("EditorNavBtn"), "切到方案编辑", &mut godot);
     // 新建方案（内存草稿，预填“未命名方案-<ts>”）
     click_button(120, *frame, find("NewBtn"), "新建方案", &mut godot);
+    // 未落盘时点校验 → 应输出红色“读取方案失败”
+    click_button(128, *frame, find("ValidateBtn"), "校验(期望红)", &mut godot);
     // 填名称/描述（随后保存将按“自检方案”改名落盘）
     if *frame == 125 {
         if let (Some(name), Some(desc)) = (find("NameEdit"), find("DescEdit")) {
@@ -108,6 +110,8 @@ pub fn dev_shot_system(
         info!("KPI_SHOT: 第 2 行名恢复为 参数1");
     }
     click_button(210, *frame, find("SaveBtn"), "保存", &mut godot);
+    // 保存后再校验 → 应输出绿色“校验通过”
+    click_button(225, *frame, find("ValidateBtn"), "校验(期望绿)", &mut godot);
 
     if *frame == 300
         && let Some(handle) = find("AppTitle")

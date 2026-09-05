@@ -69,21 +69,90 @@ pub fn run_scheme_json(scheme_path: &str, month_dir: &str, dry_run: bool) -> Str
     }
 }
 
-/// 把 JSON 结果渲染成便于 GUI/日志展示的多行文本（"❌ error" 或 pretty JSON）。
-pub fn render_result(raw: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(raw) {
-        Ok(v) => {
-            if let Some(false) = v.get("ok").and_then(|o| o.as_bool()) {
-                let err = v
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("未知错误");
-                format!("❌ {err}")
-            } else {
-                serde_json::to_string_pretty(&v).unwrap_or_else(|_| raw.to_string())
-            }
+/// 渲染结果：`ok` 供 GUI 决定整段颜色（绿/红），`text` 为多行展示文本。
+pub struct RenderOut {
+    pub ok: bool,
+    pub text: String,
+}
+
+/// 把引擎返回的 JSON 结果渲染成便于日志展示的多行文本。
+///
+/// 兼容两类结果：校验（`ok`+`issues`）与运行（`ok`+`outcomes`），
+/// 以及失败形态（`ok:false`+`error`）。
+pub fn render_result(raw: &str) -> RenderOut {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return RenderOut {
+            ok: false,
+            text: raw.to_string(),
+        };
+    };
+    let ok = v.get("ok").and_then(|o| o.as_bool()).unwrap_or(false);
+
+    // 校验结果：issues 列表
+    if let Some(issues) = v.get("issues").and_then(|i| i.as_array()) {
+        if issues.is_empty() {
+            let name = v
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            return RenderOut {
+                ok: true,
+                text: if name.is_empty() {
+                    "校验通过".into()
+                } else {
+                    format!("校验通过：{name}")
+                },
+            };
         }
-        Err(_) => raw.to_string(),
+        let has_error = issues
+            .iter()
+            .any(|i| i.get("severity").and_then(|s| s.as_str()) == Some("error"));
+        let lines: Vec<String> = issues
+            .iter()
+            .map(|i| {
+                let sev = i.get("severity").and_then(|s| s.as_str()).unwrap_or("");
+                let mark = if sev == "error" { "❌" } else { "⚠️" };
+                let loc = i.get("location").and_then(|x| x.as_str()).unwrap_or("");
+                let msg = i.get("message").and_then(|x| x.as_str()).unwrap_or("");
+                format!("{mark} {loc}：{msg}")
+            })
+            .collect();
+        return RenderOut {
+            ok: !has_error,
+            text: lines.join("\n"),
+        };
+    }
+
+    // 运行/预览结果：outcomes 列表
+    if let Some(outcomes) = v.get("outcomes").and_then(|o| o.as_array()) {
+        let lines: Vec<String> = outcomes
+            .iter()
+            .map(|o| {
+                let id = o.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                let kind = o.get("kind").and_then(|x| x.as_str()).unwrap_or("?");
+                let detail = o.get("detail").and_then(|x| x.as_str()).unwrap_or("");
+                format!("• [{id}] ({kind}) {detail}")
+            })
+            .collect();
+        return RenderOut {
+            ok,
+            text: lines.join("\n"),
+        };
+    }
+
+    // 失败形态：error 字段
+    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+        return RenderOut {
+            ok: false,
+            text: err.to_string(),
+        };
+    }
+
+    // 其余（应不出现）：兜底
+    RenderOut {
+        ok,
+        text: serde_json::to_string_pretty(&v).unwrap_or_else(|_| raw.to_string()),
     }
 }
 
