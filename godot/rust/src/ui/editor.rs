@@ -422,6 +422,7 @@ fn render_param_rows(
         let value = p.get("value").map(json_display).unwrap_or_default();
 
         let mut row = HBoxContainer::new_alloc();
+        row.set_name(&format!("ParamRow{i}"));
         let mut name_label = Label::new_alloc();
         name_label.set_text(&format!("{pname} ({ptype})"));
         row.add_child(&name_label);
@@ -431,6 +432,7 @@ fn render_param_rows(
         row.add_child(&edit);
 
         let mut remove = Button::new_alloc();
+        remove.set_name(&format!("DelParam{i}"));
         remove.set_text("删除");
         row.add_child(&remove);
 
