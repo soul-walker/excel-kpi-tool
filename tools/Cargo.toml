@@ -1,0 +1,10 @@
+[package]
+name = "tools"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+# TODO: 构建 / 测试 / 发布所需依赖统一从 workspace.dependencies 引用；
+#       如需复用游戏侧共享 crate（shared），自行创建并在此 workspace = true

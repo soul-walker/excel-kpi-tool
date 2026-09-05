@@ -1,0 +1,25 @@
+[package]
+name = "kpi-engine"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "通用 Excel 薪酬/绩效计算引擎：方案(Scheme)解析/校验 + 计算 DAG + xlsx 读写适配"
+license = "MIT"
+
+[dependencies]
+# 版本 / features 统一在根 workspace.dependencies 管理（见仓库规范）
+bevy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+umya-spreadsheet = { workspace = true }
+zip = { workspace = true }
+
+[features]
+default = []
+# 无 GUI 的 headless CLI 运行（后续 M1 接入 tools 时启用）
+cli = []
+
+[lib]
+name = "kpi_engine"

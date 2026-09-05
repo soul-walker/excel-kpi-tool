@@ -1,0 +1,13 @@
+[package]
+name = "kpi_tool"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# 版本 / features / default-features 统一在根 workspace.dependencies 管理
+bevy = { workspace = true }
+godot = { workspace = true }
+godot-bevy = { workspace = true }

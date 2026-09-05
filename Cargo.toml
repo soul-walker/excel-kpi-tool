@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = [
+    "engine",
+    "godot/rust",
+    "tools",
+]
+
+# ===== 依赖管理规范 =====
+# 1. 所有依赖先在 [workspace.dependencies] 中声明
+#    ——版本号 / path / 重命名 / default-features 只允许出现一次
+# 2. 成员 crate 一律通过 `workspace = true` 引用，禁止在成员内写版本
+#    （Cargo 限制：成员无法覆盖 default-features；features 在成员只能追加并集）
+# 3. 新增 / 调整依赖：先修改本文件的 [workspace.dependencies]，成员只保留 workspace = true
+# 4. 需要内部共享 crate（如 shared）时自行创建并登记到这里（path + 命名唯一）
+[workspace.dependencies]
+anyhow = "1"
+bevy = { version = "0.18", default-features = false, features = ["bevy_state"] }
+clap = { version = "4.6", features = ["derive"] }
+godot = "0.4"
+godot-bevy = { version = "0.11.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+umya-spreadsheet = "3.1.0"   # Spike 已发现 2.3.3 对含筛选定义名的模板解析 bug，升 3.x 验证
+zip = "8"                    # 用于读前归一化非标准 rels 绝对路径（见 engine/examples/spike_writeback.rs）
+
+# 依赖 crate 的 debug 构建也做优化，加速游戏迭代
+[profile.dev.package."*"]
+opt-level = 3

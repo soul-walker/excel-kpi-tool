@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通用 Excel 薪酬/绩效工具 —— 架构与实现设计评审稿</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --ink:#1f2733; --muted:#5b6b7c;
+    --line:#e3e7ec; --brand:#2f6fed; --brand-d:#1f4fbf; --ok:#18875e;
+    --warn:#b45309; --bad:#c0392b; --soft:#eef3fc; --code:#0f2a43;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--ink);font-size:15px;line-height:1.7}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header.top{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid var(--line);
+             padding:.55rem 1rem .55rem 1.4rem;display:flex;align-items:center;gap:.8rem}
+  header.top .logo{font-weight:800;font-size:1.05rem;color:var(--brand-d);white-space:nowrap}
+  header.top .sub{color:var(--muted);font-size:.82rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header.top .badge{font-size:.72rem;background:var(--soft);color:var(--brand-d);border:1px solid #cfe0fb;
+                    padding:.1rem .5rem;border-radius:99px;white-space:nowrap}
+  .wrap{display:flex;max-width:1380px;margin:0 auto}
+  nav.side{width:250px;flex:0 0 250px;position:sticky;top:56px;align-self:flex-start;height:calc(100vh - 56px);
+           overflow:auto;padding:1rem .6rem 2rem .4rem;border-right:1px solid var(--line);background:#fff}
+  nav.side .cap{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:.5rem .5rem .3rem}
+  nav.side a{display:block;padding:.32rem .6rem;border-radius:.4rem;color:var(--ink);font-size:.87rem;border-left:3px solid transparent}
+  nav.side a:hover{background:var(--soft);text-decoration:none}
+  nav.side a.on{background:var(--soft);border-left-color:var(--brand);color:var(--brand-d);font-weight:600}
+  main{flex:1;min-width:0;padding:1.2rem 1.8rem 6rem;max-width:1000px}
+  @media(max-width:900px){nav.side{display:none}main{padding:1rem}}
+  h1{font-size:1.7rem;margin:.4rem 0 .2rem}
+  h2{font-size:1.32rem;margin:2.6rem 0 .7rem;padding-top:.4rem;border-top:3px solid var(--brand);
+     color:var(--brand-d)}
+  h3{font-size:1.06rem;margin:1.6rem 0 .5rem;color:#223}
+  h4{font-size:.95rem;margin:1.1rem 0 .35rem}
+  p{margin:.5rem 0}
+  .lead{font-size:1.02rem;color:#334;background:#fff;border:1px solid var(--line);border-left:5px solid var(--brand);
+        border-radius:.5rem;padding:.9rem 1.1rem;margin:1rem 0}
+  ul,ol{padding-left:1.4rem;margin:.4rem 0}
+  li{margin:.18rem 0}
+  table{border-collapse:collapse;width:100%;margin:.7rem 0;font-size:.85rem;background:#fff}
+  th,td{border:1px solid var(--line);padding:.38rem .5rem;text-align:left;vertical-align:top}
+  th{background:#f0f4fa;font-weight:700}
+  tr:nth-child(even) td{background:#fafbfc}
+  code{font-family:Consolas,"Cascadia Code",Menlo,monospace;font-size:.85em;background:#eef1f5;
+       border-radius:4px;padding:0 .28em;color:var(--code)}
+  pre{background:#0f1b2a;color:#dce7f5;padding:.9rem 1rem;border-radius:.5rem;overflow:auto;
+      font-size:.78rem;line-height:1.5;margin:.6rem 0}
+  pre code{background:none;color:inherit;padding:0;font-size:.9em}
+  .box{background:#fff;border:1px solid var(--line);border-radius:.55rem;padding:.85rem 1.05rem;margin:.7rem 0}
+  .box.warn{border-left:5px solid var(--warn)}
+  .box.info{border-left:5px solid var(--brand)}
+  .box.good{border-left:5px solid var(--ok)}
+  .box.bad{border-left:5px solid var(--bad)}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem;margin:.7rem 0}
+  .card{background:#fff;border:1px solid var(--line);border-radius:.6rem;padding:.7rem .9rem}
+  .card .t{font-weight:700;margin-bottom:.2rem}
+  .card .s{font-size:.83rem;color:var(--muted)}
+  .tag{display:inline-block;font-size:.7rem;border-radius:99px;padding:.05rem .55rem;margin-left:.3rem;vertical-align:middle}
+  .tag.go{background:#e4f7ef;color:#0f6f4f;border:1px solid #bfe8d7}
+  .tag.rust{background:#ffe9e9;color:#a13333;border:1px solid #f3c6c6}
+  .tag.ui{background:#e9e6fd;color:#4b3bb3;border:1px solid #d3cdf6}
+  .tag.dsl{background:#fdf1dd;color:#8a5b00;border:1px solid #f2ddb0}
+  .tag.must{background:#fde9e9;color:#a22;border:1px solid #f2c1c1}
+  .small{font-size:.8rem;color:var(--muted)}
+  .del{text-decoration:line-through;color:var(--muted)}
+  .hl{background:#fff3cd;border-radius:3px;padding:0 .2em}
+  figure{margin:1rem 0;background:#fff;border:1px solid var(--line);border-radius:.6rem;padding:.8rem}
+  figcaption{font-size:.8rem;color:var(--muted);text-align:center;margin-top:.5rem}
+  .flow{display:flex;flex-direction:column;gap:0;align-items:stretch}
+  .fnode{border:1.5px solid var(--line);border-radius:.5rem;padding:.45rem .8rem;background:#fbfcfe;
+         font-size:.84rem}
+  .fnode b{display:block;font-size:.9rem}
+  .fnode.c1{border-color:#bcd0f6;background:var(--soft)}
+  .fnode.c2{border-color:#c9e8d8;background:#f2faf6}
+  .fnode.c3{border-color:#f2d6a7;background:#fdf7ec}
+  .fnode.c4{border-color:#dfc6f0;background:#faf5fd}
+  .arrow{text-align:center;color:var(--muted);line-height:1;padding:.18rem 0}
+  .flowrow{display:flex;gap:.6rem;align-items:stretch}
+  .flowrow .fnode{flex:1}
+  details{border:1px solid var(--line);border-radius:.5rem;background:#fff;margin:.5rem 0}
+  details summary{cursor:pointer;padding:.55rem .9rem;font-weight:600;font-size:.92rem;list-style:none}
+  details summary::before{content:"▸ ";color:var(--brand)}
+  details[open] summary::before{content:"▾ "}
+  details .body{padding:.1rem 1rem .8rem;border-top:1px dashed var(--line)}
+  .chk{display:flex;gap:.5rem;align-items:flex-start;margin:.25rem 0;cursor:pointer}
+  .chk input{margin-top:.35rem}
+  .decision{margin:1rem 0}
+  .decision .q{font-weight:800;font-size:1rem;margin:.4rem 0}
+  .opts{display:flex;flex-direction:column;gap:.5rem}
+  .opt{display:block;position:relative;border:1.5px solid var(--line);border-radius:.55rem;background:#fff;
+       padding:.6rem .9rem .6rem 2.4rem;cursor:pointer}
+  .opt:hover{border-color:#9fbaf0;background:#fbfdff}
+  .opt input{position:absolute;left:.8rem;top:.95rem}
+  .opt .optname{font-weight:700;font-size:.93rem}
+  .opt .od{font-size:.83rem;color:var(--muted);margin-top:.1rem}
+  .opt .pro{font-size:.8rem;color:var(--ok);margin-top:.2rem}
+  .opt .con{font-size:.8rem;color:var(--bad);margin-top:.15rem}
+  .opt.rec{border-color:var(--brand);background:var(--soft)}
+  .opt.rec::after{content:"已定";position:absolute;right:.6rem;top:.5rem;font-size:.65rem;color:#fff;
+                  background:var(--brand);border-radius:99px;padding:.05rem .5rem}
+  .impact{margin:.5rem 0 0;padding:.6rem .9rem;border-radius:.5rem;font-size:.87rem;
+          background:#f0f6ff;border:1px solid #d3e3fd;display:none}
+  .impact.show{display:block}
+  .rate{display:flex;gap:.4rem;align-items:center}
+  .rate label{font-size:.78rem;border:1px solid var(--line);border-radius:99px;padding:.08rem .6rem;cursor:pointer;background:#fff}
+  .rate input{display:none}
+  .rate label.on1{background:#e9f7ef;border-color:#9fd8bd;color:var(--ok)}
+  .rate label.on2{background:#fdf1dd;border-color:#e8c98a;color:var(--warn)}
+  .rate label.on3{background:#fdeceb;border-color:#efb2ad;color:var(--bad)}
+  .btn{display:inline-block;border:1px solid var(--line);background:#fff;border-radius:.45rem;
+       padding:.35rem .9rem;cursor:pointer;font-size:.87rem;color:var(--ink)}
+  .btn:hover{border-color:var(--brand);color:var(--brand-d)}
+  .btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.pri:hover{background:var(--brand-d);color:#fff}
+  textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:.5rem;padding:.6rem;
+           font-family:inherit;font-size:.88rem}
+  .kv{display:grid;grid-template-columns:minmax(170px,1fr) 3fr;gap:0;font-size:.86rem;margin:.4rem 0}
+  .kv div{padding:.3rem .5rem;border-bottom:1px dashed var(--line)}
+  .kv div:first-child{font-weight:700;color:var(--muted)}
+  .hint{font-size:.8rem;color:var(--muted);margin-top:.2rem}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <span class="logo">通用 Excel 薪酬/绩效工具 · 设计评审稿</span>
+  <span class="sub">目标仓库：excel-kpi-tool　|　参考实现：school-kpi（Go + Excelize + Tauri 旧客户端）</span>
+  <span class="badge">v0.6 评审完成　2026-09-05</span>
+</header>
+
+<div class="wrap">
+
+<nav class="side" id="toc">
+  <div class="cap">阅读导航</div>
+  <a href="#s0">评审说明与速览</a>
+  <a href="#s1">一、现状与参考实现解剖</a>
+  <a href="#s2">二、需求与"通用"边界</a>
+  <a href="#s3">三、目标架构与核心模型</a>
+  <a href="#s4">四、GUI 交互设计草案</a>
+  <a href="#s5">五、技术选型（决策台）</a>
+  <a href="#s6">六、里程碑路线图</a>
+  <a href="#s7">七、风险与未决问题</a>
+  <a href="#s8">八、评审操作台</a>
+</nav>
+
+<main>
+
+<!-- ================= 0 ================= -->
+<section id="s0">
+  <h2>评审说明与速览</h2>
+  <div class="box info">
+    <b>这份文档是什么：</b>我把参考仓库 <code>school-kpi</code> 的 Go 代码、示例 Excel 数据、以及旧 Tauri 客户端全部读了一遍
+    （核心文件：<code>cmd/*</code>、<code>collect/**</code>、<code>generate/bukeshi.go</code>、<code>kpi_generate/kpi.go</code>、<code>example_data/*.xlsx</code>），
+    在此基础上给出<b>通用化工具</b>的目标架构与实现思路。文档是<b>可交互的</b>：你可以展开细节、切换技术选型、逐节评分并勾选问题，
+    最后在<a href="#s8">评审操作台</a>一键导出你的结论，把文本贴回对话即可。
+  </div>
+
+  <div class="box">
+    <b>TL;DR（一句话版）</b>
+    <ul>
+      <li><b>通用化的本质</b>不是"做一个万能计算器"，而是把老代码里的三类硬编码拆成一份<b>可保存、可编辑、可校验的"方案（Scheme）"配置</b>：<b>读什么</b>（文件/表/列如何解析）、<b>怎么算</b>（参数、聚合、逐行公式、分组覆盖）、<b>写哪里</b>（回写模板的哪些列 / 生成新表）。</li>
+      <li><b>计算语义全部来自老代码</b>：人员名称为 key 的记录聚合 + 按"非校聘/校聘"两组公式求值 + 原地回写已排好版的模板（如 <code>绩效.xlsx</code>）。这套语义可以 1:1 表达为配置。</li>
+      <li><b>最大的技术风险不是"算"，而是"回写"</b>：要求打开老师做好的 Excel 模板、只改动指定列、保留原有格式/其他工作表。按你的评审，读写层选定 <b>Rust + umya-spreadsheet（支持原格式回写）</b>，因此 M0 的第一个 Spike 就是验证它对真实模板（含 WPS 产物）的保格式写回。</li>
+    </ul>
+  </div>
+
+  <div class="box good">
+    <b>本轮评审已定的技术栈（2026-09-05）：</b>D1=<b>Godot 做 GUI</b> · D2=<b>全 Rust，xlsx 读写用 umya-spreadsheet</b> · D3=轻量 DSL · D4=JSON+版本迁移 · D5=<b>以本仓库为根重构</b>。详见<a href="#s5">第五节决策台</a>。
+  </div>
+  <div class="box info">
+    <b>同日补充的三项决策：</b>① <b>参数统一内嵌方案文件</b>，不再从 配置.xlsx 读取（此前用 xlsx 是因旧客户端无存储，现方案文件即存储）；
+    ② <b>核心逻辑保留 Bevy ECS 实现架构</b>，不移除 godot-bevy；③ <b>方案以 JSON 文件存储</b>（不引入 SQLite），评估见<a href="#s37">3.7 节</a>。
+  </div>
+
+  <div class="box good">
+    <b>Q1~Q4 全部已答（2026-09-05）：</b>
+    <ol>
+      <li><b>Q1（使用者）</b>：老师自己跑 → GUI 默认"月度运行向导"（选数据目录→选方案→校验→预览→运行），高级方案配置为单独编辑模式（见第四节）。</li>
+      <li><b>Q2（身份）</b>：先姓名 + 报重名 → 见 A4；工号/人员主档等作 M4 演进项。</li>
+      <li><b>Q3（回写）</b>：<b>A/B 可切换</b>（<code>apply: inplace | copy</code>），面向老师的主流程默认 A（写回原文件 + 自动 .bak）；详见 <a href="#s38">3.8 节</a>。</li>
+      <li><b>Q4（公式）</b>：不会演进到 Excel 完整语法 → DSL 无需兼容预留，函数库可扩展即可（已并入 D3 说明）。</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+  <h2>一、现状与参考实现解剖</h2>
+
+  <h3>1.1 老系统到底做了什么</h3>
+  <p>参考实现是一个典型的 <b>"明细/月度台账 + 固定模板" 式绩效计算器</b>。每周/每月老师交若干台账 Excel，
+  程序在指定工作目录下按<b>固定文件名</b>读取，汇总后把结果<b>写回排版好的绩效模板</b>。数据流如下：</p>
+
+  <figure>
+    <div class="flow">
+      <div class="fnode c1"><b>输入台账（固定文件名，在同一工作目录）</b>
+        配置.xlsx（参数） · 课时.xlsx · 岗位.xlsx · 请假替上课.xlsx · 未参加升旗集会.xlsx · 早读.xlsx · 班主任.xlsx · 绩效.xlsx（回写目标模板）</div>
+      <div class="arrow">▼</div>
+      <div class="fnode c2"><b>collect 层（Go，excelize 读）</b>
+        首行按"中文表头名"匹配列 → 逐行按 key=姓名 聚合为内存 Map（读取时清空格/换行、缺列即 panic）</div>
+      <div class="arrow">▼</div>
+      <div class="fnode c3"><b>计算层（过程化公式，见 kpi_generate/kpi.go）</b>
+        对绩效模板每一行人员：课时费=课时×单价、超课时、考勤奖、扣课时/请假扣款、折扣、合计1/合计2、上浮30%、实际发放……
+        公式按<b>非校聘 / 校聘</b>两个 sheet（两个计算分组）不同；另有"请假超过 N 天 → 全部指标清零"门控</div>
+      <div class="arrow">▼</div>
+      <div class="fnode c4"><b>写出层（excelize 写，原地保存）</b>
+        把数值写回 绩效.xlsx 的"非校聘/校聘"两个 sheet 指定列，并设置数字格式（整数 0 位 / 小数 2 位）</div>
+    </div>
+    <div class="flowrow" style="margin-top:.6rem">
+      <div class="fnode c2"><b>副流程：补课时表生成</b>请假替上课台账 → 按"替上课老师"聚合节数 → 新生成 补课时.xlsx（费用=节数×7）→ 补课时.xlsx 又作为绩效计算的输入之一</div>
+    </div>
+    <div class="flowrow" style="margin-top:.6rem">
+      <div class="fnode"><b>旧 GUI（Tauri1 + Quasar/Vue）</b>输入工作目录 → 调用 sidecar 的 <code>kpi.exe gen bukeshi|kpi|all -d 目录</code> → 展示日志。GUI 本身不含任何业务逻辑。</div>
+    </div>
+    <figcaption>图 1｜老系统数据流（虚线为两次运行间的产物依赖：补课时.xlsx 先生成、再被绩效流程读取）</figcaption>
+  </figure>
+
+  <h3>1.2 资产盘点（哪些是可复用资产，哪些是要被"配置化"消灭的）</h3>
+  <table>
+    <tr><th>模块 / 文件</th><th>语义角色</th><th>在新的通用体系里对应</th></tr>
+    <tr><td><code>cmd/root.go, cmd/gen.go, kpi.go, bukeshi.go, all.go</code></td><td>CLI 入口、工作目录切换、命令编排（补课时→绩效）</td><td>"运行一个方案"按钮 + 引擎 CLI（保留 <code>-d 目录</code> 习惯）</td></tr>
+    <tr><td><code>collect/common.ReadExcel / CheckHeadsIndex / HandleStringSpace</code></td><td>通用读取脚手架：按表头名定位列、校验必填表头、姓名归一化</td><td>成为<b>通用解析器</b>的一部分（配置驱动：列映射、表头行、归一化规则、缺列报错）</td></tr>
+    <tr><td><code>collect/config/config.go</code></td><td>读 配置.xlsx（名称/数值两列）为 KpiConfig</td><td><b>参数（Parameter）</b>：新设计内嵌方案文件（见 3.7），GUI 网格编辑，无需独立工作簿</td></tr>
+    <tr><td><code>collect/keshi、zaodu、weicanjia、banzhuren、bukeshi、gangwei</code></td><td>各台账 → map[姓名]值</td><td>"数据源 + 列映射 + 按 key 取 1 值" 的声明式描述</td></tr>
+    <tr><td><code>collect/qingjiatishangke</code></td><td>一对多主从台账：请假记录行 + 多行替课老师；姓名向下填充</td><td>通用解析能力：<b>向下填充列 + "续上一条主记录"（主从结构）</b></td></tr>
+    <tr><td><code>collect/collect.go</code></td><td>聚合门面；IsQingJiaChaoGuo 门控；CalXxx 指标函数</td><td>聚合指标定义 + 公式库函数（多数与输出列 1:1）</td></tr>
+    <tr><td><code>kpi_generate/kpi.go</code></td><td>打开模板、逐行查 key、公式链、按列名找列号写入 + 数字样式</td><td><b>输出定义</b>：选择模板文件/sheet、按表头名定位列、每字段列号+数字格式+空值策略；公式链进"计算字段"</td></tr>
+    <tr><td><code>generate/bukeshi.go</code></td><td>由请假表派生"替课老师"明细 → 新建 xlsx</td><td><b>派生明细表 + 新文件输出模板</b></td></tr>
+    <tr><td><code>kpi-client（Tauri1+Quasar）</code></td><td>壳：目录输入 + 三个按钮 + 日志</td><td>新 GUI 的雏形（要扩展为方案编辑器）</td></tr>
+  </table>
+
+  <details>
+    <summary>1.3 老代码中真实存在的"计算语义细节"（对拍基线，做通用引擎时不可漏）</summary>
+    <div class="body">
+      <p>以下细节全部从 <code>kpi_generate/kpi.go</code>、<code>collect/collect.go</code> 逐行还原，作为"通用引擎必须能表达这些"的验收样例。</p>
+      <ul>
+        <li><b>门控 Gate</b>：请假超过 N 天（<code>配置.请假超过天数</code>，统计<b>非"公"假</b>的累计天数）后，该人几乎所有项置 0 或留空。</li>
+        <li><b>字段取值规则分三种</b>：缺纪录→0（如课时、岗位奖）；缺纪录→留空（如补课时、早读≤0、扣课时合计0）；命中且&gt;0→写值、否则空（早读/班主任/折扣等）。<b>空与 0 的差异会体现在最终 Excel 单元格上</b>，必须建模。</li>
+        <li><b>公式链（非校聘列）</b>：课时S = 课时.总计（门控下为0）；课时X = max(0, 课时S−基础课时)；课时费S = 课时S×课时费；课时费X = 课时X×超课时费；课时周费 = 课时费S+课时费X；课时月费 = 周费×4；考勤奖 = 参数值；岗位奖/教研组长/年级组长/行政后勤/行后 = 岗位表值；扣课时 = −Σ(课时周费÷5 × 请假天数)，仅统计 类型∉{婚,公,丧,产} 且该假有替课 的记录；请假 = −min(100, 事假天数×事假单价 + 病假天数×病假单价)；补课时 = 补课时表费用；未参加升旗、集会 = 台账值；早读 = 台账小计；班主任 = 班主任表应发。</li>
+        <li><b>折扣</b>：{教研组长,年级组长,行政后勤,班主任}中 &gt;0 的数量 ≥2 时取其中……（代码里 <code>min()</code> 的实现是"取最后一个非零值"，见风险清单 R3）</li>
+        <li><b>合计1</b> = 课时月费 + 考勤奖 + 岗位奖 + 扣课时 + 补课时 + 请假 + 未参加 + 早读 − 折扣（负项带负号求和）；<b>合计2</b> = (班主任+教研组长+年级组长+行政后勤+行、后) ×（非校聘 0.4 / 校聘 1）；<b>合计</b> = 合计1+合计2。</li>
+        <li><b>非校聘</b>另有：上浮30% = 合计×1.3；实际发放 = round(上浮30%)。校聘实际发放 = round(合计)。<b>个税/取整/无格式</b>列模板里存在但代码未算（预留列）。</li>
+        <li><b>表头差异</b>：非校聘 28 列、校聘 26 列（少"上浮30% 取整 无格式"中的两列，以模板为准），两 sheet 的表头集合不同 → 校验规则也不同。</li>
+        <li><b>行定位假设脆弱</b>：写入行号用的是 <code>GetRows</code> 返回切片下标+1；一旦模板中出现被 Excel 压缩掉的空行或插入行，位置就会错位。示例模板带"标题行/合并单元格/自动筛选（A2:AD80）"，能跑通属于侥幸。</li>
+        <li><b>补课时派生</b>：费用 = 节数 × <code>7</code>（硬编码常量）；补课时.xlsx 生成后又被绩效流程当输入读取——是"先跑 bukeshi 再跑 kpi"的原因，正确建模应是方案内的<b>依赖图</b>。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>1.4 示例数据形态（解包 example_data/*.xlsx 观察所得）</summary>
+    <div class="body">
+      <table>
+        <tr><th>文件</th><th>sheet</th><th>观察到的结构</th></tr>
+        <tr><td>配置.xlsx</td><td>配置</td><td>A 名称 / B 数值 两列共 11 行（考勤奖=100、课时费=1.5、折扣=0.2……），数值为真数字；另有 Sheet3（姓名/职位/特殊）未被主流程使用</td></tr>
+        <tr><td>绩效.xlsx</td><td>非校聘、校聘</td><td>两个 sheet 各约 28+ 列、80 行内；含标题串（"2023年9月份绩效表1（高中）"）、自动筛选、按教研组分组的人员行（表头含 序号/教研组/姓名/课时S/…/无格式）；数据从模板第 2 行起</td></tr>
+        <tr><td>课时/岗位/早读/班主任/未参加/领导绩效等</td><td>各自 sheet</td><td>首行表头 + 数据行；关键列名见各自 collect 代码常量</td></tr>
+        <tr><td>请假替上课.xlsx</td><td>请假替上课</td><td>姓名（向下填充）/类型/天数 为主记录，替上课老师/节数为从属行（同一人多条假、每条假多个替课老师）</td></tr>
+      </table>
+      <p class="small">注：示例数据疑似早于部分代码版本（如配置表缺"是否对课时月费进行折扣"项）。对拍时需用"与当前代码一致"的输入集。</p>
+    </div>
+  </details>
+
+  <h3>1.5 痛点归纳（为什么要通用化）</h3>
+  <div class="cols">
+    <div class="card"><div class="t">① 改规则 = 改代码</div><div class="s">调一个系数、加一种扣款、改列位置都要动 Go 源码、重新编译、全校换 exe。</div></div>
+    <div class="card"><div class="t">② 用姓名当主键</div><div class="s">去空格/换行是唯一归一化；重名、别名、台账与模板姓名不一致时静默算错或找不到人。</div></div>
+    <div class="card"><div class="t">③ 输入输出耦合模板</div><div class="s">列名匹配靠硬编码字符串，模板一旦改版（增列/改列名/插空行）立即 panic，或静默写错行。</div></div>
+    <div class="card"><div class="t">④ 流程时序靠人</div><div class="s">先补课时后绩效、产物又作输入，顺序错了结果就错；中间产物与模板混在同一目录，无版本、无审计。</div></div>
+    <div class="card"><div class="t">⑤ 错误体验差</div><div class="s">缺列/坏数据直接 panic + exit 1，日志在 stderr；用户无法知道"哪一行哪一列错"。无 dry-run、无预览。</div></div>
+    <div class="card"><div class="t">⑥ 配置也是 Excel</div><div class="s">参数在 配置.xlsx 里手工改，没有结构校验、历史版本与"这次改了哪些参数"的追溯。</div></div>
+  </div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+  <h2>二、需求与"通用"边界</h2>
+
+  <h3>2.1 目标定义</h3>
+  <div class="lead">
+    做一个<b>配置驱动、带 GUI 的 Excel 台账计算工具</b>：用户用界面把四件事描述出来——
+    <b>(1) 读哪些记录文件、列怎么解析；(2) 有哪些参数/常量；(3) 计算公式（含按分组覆盖）；(4) 结果写回哪个文件的哪些列（或生成新文件）</b>——
+    保存为一份可复用的<b>"方案(Scheme)"</b>，之后每月换数据一键重跑。规则演进不再动代码，只改方案。
+  </div>
+
+  <h3>2.2 "通用"的三层边界（建议）</h3>
+  <table>
+    <tr><th>层级</th><th>由用户配置（GUI）</th><th>由工具内置（代码）</th></tr>
+    <tr><td><b>数据接入层</b></td><td>文件/目录/多文件、sheet、表头行号、列→字段映射、列类型、空值/向下填充/续主记录、忽略行、姓名归一化、人员过滤</td>
+        <td>xlsx/csv 解析引擎、合并单元格读取、类型转换、分块读取（大文件）、编码</td></tr>
+    <tr><td><b>计算层</b></td><td>参数表、派生明细、聚合指标（按人/按组求和计数等）、逐字段公式、分组（如 非校聘/校聘）公式覆盖、全局门控条件</td>
+        <td>表达式解释器 + 内置函数库（Excel 风格子集）、依赖拓扑排序、类型/引用检查、循环引用报错</td></tr>
+    <tr><td><b>输出层</b></td><td>目标模板文件 + sheet（可随分组切换）、按表头名/列号定位写列、数字格式、空值行为（留空/0/公式）、新建文件模板、人员行匹配策略（按 key 定位行 / 追加行）</td>
+        <td>xlsx 原地回写保格式、新文件生成、样式应用、覆盖前备份、差异报告</td></tr>
+  </table>
+  <div class="box info">
+    <b>建议的"不做"清单（MVP 边界）：</b>不追求任意编程语言式规则；不内置完整 Excel 公式引擎（见 D3）；
+    不做多人协作/权限系统（单机）；不把"任意复杂 Excel 版式"都当输入（复杂版式仍建议先整理成规整台账）。
+    这些以"扩展点"预留：公式函数库可加、解析器支持插件、方案文件版本化可迁移。
+  </div>
+
+  <h3>2.3 关键需求假设（请逐条确认或修正）</h3>
+  <details open>
+    <summary>Q 清单（勾选=已确认；未勾选=待讨论，见操作台导出）</summary>
+    <div class="body">
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A1" checked><span><b>人员粒度</b>：计算对象始终是"人"，其余都是"按人聚合/取值的依据"。目前 true。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A2" checked><span><b>输出形态</b>：主要形态是"回写老师已排版的模板"（如绩效.xlsx），且必须尽量保留模板原格式与其他 sheet。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A3" checked><span><b>分组</b>：同一份方案内需要支持"分组不同公式"，老场景分组 = 模板 sheet（非校聘/校聘）。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A4" checked><span><b>主键</b>：MVP 用姓名 + <b>重名/缺失上报问题清单</b>（Q2 已确认）；归一化规则可配置；预留"多列复合键/工号"供 M4 演进。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A5" checked><span><b>参数来源（已定）</b>：参数作为规则常量内嵌方案文件，不再从 配置.xlsx 读取；政策调整时在 GUI 编辑并另存新版本（保留历史），不按月复制方案。旧"读 xlsx 参数表"仅作老代码史。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A6" checked><span><b>每月复用</b>：按月换目录/换一组文件重跑，方案不变；需要一个"选月份文件集→运行"的交互。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A7" checked><span><b>目标环境</b>：单机 Windows 桌面（双击运行），离线，不依赖用户装有 Excel。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="A8" checked><span><b>校验诉求</b>：运行前 dry-run 预览（模拟"将写入什么值"），运行后给"差异/问题清单"（哪些人缺数据、哪些值异常）。</span></label>
+    </div>
+  </details>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+  <h2>三、目标架构与核心模型</h2>
+
+  <h3>3.1 总体架构</h3>
+  <p>核心原则：<b>引擎（headless，可测可复用）与界面（GUI）分离</b>；引擎吃"方案配置 + 输入文件集"，
+  输出"结果工作簿/差异报告/问题清单"。GUI 只是方案的编辑器和运行面板。</p>
+
+  <figure>
+    <div class="flow">
+      <div class="fnode"><b>GUI 层 = Godot 4 工程（方案编辑器 + 运行台）</b><span class="small">
+        场景/布局在 Godot 编辑器搭建；核心逻辑（方案/校验/执行）在 Bevy ECS（engine 的 Plugin），经 godot-bevy 桥接；GDScript 只做薄胶水。
+        主要页面：方案列表/数据源列对齐预览/参数/计算组与公式(试算)/输出列映射/dry-run 差异/问题清单</span></div>
+      <div class="arrow">▼ 同进程：Godot 场景事件 → godot-bevy → ECS（engine）</div>
+      <div class="fnode"><b>引擎 = engine crate（Bevy Plugin；headless 可复用）</b><span class="small">
+        核心逻辑以 Bevy 组件/资源/系统表达：compile(方案) → 静态校验(列引用/类型/环) → 依赖图(DAG)；execute(文件集) → 逐节点执行；
+        同一套 Plugin 可在 Godot(godot-bevy)内运行，也可由 CLI/测试以 headless bevy_app 运行</span></div>
+      <div class="arrow">▼</div>
+      <div class="flowrow">
+        <div class="fnode c1"><b>Reader 解析器</b><br><span class="small">umya-spreadsheet 读；表头定位、列映射、类型转换、填充/续主、归一化</span></div>
+        <div class="fnode c1"><b>参数</b><br><span class="small">内嵌方案（规则常量），GUI 网格编辑；政策调整时才改并另存新版本</span></div>
+        <div class="fnode c1"><b>Transform 派生</b><br><span class="small">行过滤→行映射→分组聚合→派生明细（如补课表）</span></div>
+        <div class="fnode c1"><b>Compute 计算组</b><br><span class="small">字段级表达式链 + 分组覆盖 + 门控</span></div>
+        <div class="fnode c1"><b>Writer 写出</b><br><span class="small">umya-spreadsheet 原格式回写 / 新建；行定位；备份</span></div>
+      </div>
+      <div class="arrow">▼ 结果 .xlsx · 回写差异报告 · 问题清单(哪些人缺数据/类型错/重名)</div>
+      <div class="fnode c4"><b>产物：</b>更新后的模板文件 / 新建文件（如 补课时.xlsx）/ dry-run 预览网格 / 审计日志</div>
+    </div>
+    <figcaption>图 2｜新系统分层架构（按 2026-09-05 评审：Godot GUI + Bevy ECS 核心 + umya-spreadsheet 读写）。engine 是 Bevy Plugin 形态的库，同一套系统可被 godot-bevy 与 headless CLI/回归测试共用。</figcaption>
+  </figure>
+
+  <h3>3.2 核心领域模型（一份"方案"由什么组成）</h3>
+  <table>
+    <tr><th>概念</th><th>说明</th><th>对应老代码</th></tr>
+    <tr><td><b>Scheme（方案）</b></td><td>带 schemaVersion 的完整配置（JSON），含下述所有对象；GUI 编辑、保存、导入导出。</td><td>cmd 下的一套固定逻辑</td></tr>
+    <tr><td><b>Source（数据源）</b></td><td>文件（或目录通配）+ sheet + 表头行号 + 起始行 + 列定义 + 行过滤 + 归一化 + 解析技巧（填充/续主）</td><td>每个 collect/xxx 的 fileName/sheetName + readRows</td></tr>
+    <tr><td><b>ColumnDef（列定义）</b></td><td>定位方式(按表头名/列号)、类型(文本/整数/小数/金额/布尔/日期)、别名、可为空、主键列标记</td><td>常量表头名 + strconv 解析</td></tr>
+    <tr><td><b>Parameter（参数）</b></td><td>标量参数集合（规则常量）；随方案文件存储与版本化；政策调整时 GUI 编辑并另存新版本，不按月复制</td><td>KpiConfig（原 配置.xlsx → 现并入方案文件）</td></tr>
+    <tr><td><b>Entity 主维度</b></td><td>计算对象：key 字段（姓名/复合键）、归一化、重名策略；每个数据源/派生表都隐含 key</td><td>map[姓名]</td></tr>
+    <tr><td><b>Transform（派生）</b></td><td>由源数据派生新明细：过滤→字段重映射→聚合(按 key group)→新表（仍带 key）。例：请假替课行→按替课老师汇总节数/费用</td><td>generate.collectTiShangKe</td></tr>
+    <tr><td><b>Aggregate（聚合指标）</b></td><td>对某明细按 key 求 sum/count/avg/max/min/last/条件计数（如"非公假累计天数"）</td><td>collect.go 里的 Get/Cal 系列</td></tr>
+    <tr><td><b>ComputeGroup（计算分组）</b></td><td>一组共享计算字段上下文 + 覆盖；如"非校聘/校聘"。分组条件=输出 sheet 或人员属性列</td><td>calAndWriteJx(xp=false/true)</td></tr>
+    <tr><td><b>CalcField（计算字段）</b></td><td>name + 表达式 + 类型 + 依赖；表达式引用：数据源字段、聚合指标、参数、其他字段</td><td>kpi.go 里每个 writeCell 前的公式</td></tr>
+    <tr><td><b>Output（输出）</b></td><td>两种模式：<b>patch 模板</b>（文件+sheet 随分组、行定位=按 key 匹配行、字段→列(表头名/列号)、数字格式、空行为）；<b>生成新文件</b>（表头模板、来源明细/计算表）</td><td>kpi_generate / generate.bukeshi</td></tr>
+    <tr><td><b>校验规则</b></td><td>问题级别：error/warn/info（缺 key、重名、列缺失、类型错、数值异常、缺人名单）</td><td>panic + slog</td></tr>
+  </table>
+
+  <h3>3.3 运行模型：编译期 / 运行期</h3>
+  <div class="box">
+    <b>① Compile（点"保存/校验"时，秒级）</b>
+    <ul>
+      <li>解析方案 JSON → schema 校验 → 构建对象模型；</li>
+      <li>静态检查：表达式引用字段存在、类型可推断、无循环依赖、公式函数存在、输出列能在目标模板表头中找到；</li>
+      <li>打开每个输入文件，读取表头行做 <b>实际列对齐</b>（名字匹配/列号回退），列出"与方案预期不符"的警告；</li>
+      <li>产出<b>可执行 DAG</b>（源→派生→聚合→计算→输出）与错误清单。编译不通过就不允许运行。</li>
+    </ul>
+    <b>② Execute（点"运行"时）</b>
+    <ul>
+      <li>依 DAG 顺序执行；数据行问题<b>不中断整体</b>，落入问题清单（带文件名/sheet/行号/原因）；</li>
+      <li>写前可选 <b>dry-run</b>：在内存中算出每人每字段，GUI 网格预览 + 与当前模板值 diff；</li>
+      <li>写后输出：备份原文件 → 写回；记录审计日志（方案版本、参数快照、运行时间、人数、警告数）。</li>
+    </ul>
+  </div>
+
+  <h3>3.4 用"方案"复刻老绩效任务（证明通用性能覆盖现状）</h3>
+  <p>下面把 1.3 的语义翻译为方案片段（示意，字段名可再调）。重点是展示"配置化之后长什么样"，不追求最终语法。</p>
+
+  <details open>
+    <summary>展开：方案结构示意图（JSON，节选）</summary>
+    <div class="body">
+<pre><code>{
+  "schemaVersion": 1,
+  "name": "高中月绩效（复刻 school-kpi）",
+  "entity": { "keyField": "姓名", "normalize": ["去空白", "去换行"], "duplicate": "error" },
+
+  "parameters": [   // 已定：参数内嵌方案，不再读 配置.xlsx（数值取自示例配置表）
+    { "name": "考勤奖",     "type": "int",     "value": 100 },
+    { "name": "基础课时",    "type": "decimal", "value": 15.6 },
+    { "name": "课时费",     "type": "decimal", "value": 1.5 },
+    { "name": "超课时费",    "type": "decimal", "value": 5 },
+    { "name": "事假单价",    "type": "decimal", "value": 20 },
+    { "name": "病假单价",    "type": "decimal", "value": 10 },
+    { "name": "折扣",       "type": "decimal", "value": 0.2 },
+    { "name": "请假超过天数", "type": "int",     "value": 20 }
+  ],
+
+  "sources": [
+    { "id": "课时",   "file": "课时.xlsx",         "sheet": "课时",   "headerRow": 1,
+      "columns": [ {"header":"姓名","as":"姓名","key":true}, {"header":"总计","as":"课时","type":"decimal","required":true} ] },
+    { "id": "岗位",   "file": "岗位.xlsx",         "sheet": "Sheet1", "headerRow": 1,
+      "columns": [ {"header":"姓名","as":"姓名","key":true}, {"header":"岗位奖","type":"int"}, {"header":"教研组长","type":"int"} ] },
+    { "id": "请假替上课", "file": "请假替上课.xlsx", "sheet": "请假替上课", "headerRow": 1,
+      "parse": { "fillDown": ["姓名"], "续主记录": { "列": "天数", "空则续上一条" } },
+      "columns": [ {"header":"姓名"}, {"header":"类型"}, {"header":"天数","type":"decimal"}, {"header":"替上课老师"}, {"header":"节数","type":"int"} ] }
+  ],
+
+  "derived": [   // 补课时.xlsx 的内容：替课老师维度的派生明细
+    { "id": "补课", "from": "请假替上课", "when": "替上课老师 != ''",
+      "map": { "姓名": "替上课老师", "节数": "节数" },
+      "groupBy": "姓名",
+      "fields": [ { "name": "节数", "expr": "SUM(节数)" }, { "name": "费用", "expr": "节数 * 7" } ] }
+  ],
+
+  "aggregates": [
+    { "id": "请假超总天数", "from": "请假替上课", "groupBy": "姓名",
+      "expr": "SUM(天数 WHERE 类型 != '公')" },
+    { "id": "请假超额", "from": "请假替上课", "groupBy": "姓名",
+      "expr": "请假超总天数 >= 参数.请假超过天数" }
+  ],
+
+  "groups": [
+    { "id": "fxp", "name": "非校聘", "output": { "sheet": "非校聘" },
+      "fields": [
+        { "name": "课时S",    "expr": "IF(请假超额, 0, 课时.课时 ?? 0)" },
+        { "name": "课时X",    "expr": "IF(请假超额, 0, MAX(0, 课时S - 参数.基础课时))" },
+        { "name": "课时费S",  "expr": "IF(请假超额, 0, 课时S * 参数.课时费)" },
+        { "name": "课时费X",  "expr": "IF(请假超额, 0, 课时X * 参数.超课时费)" },
+        { "name": "课时周费",  "expr": "课时费S + 课时费X" },
+        { "name": "课时月费",  "expr": "课时周费 * 4" },
+        { "name": "考勤奖",   "expr": "IF(请假超额, 0, 参数.考勤奖)" },
+        { "name": "扣课时",   "expr": "IF(请假超额, 空, -SUM(请假替上课.天数 * 课时周费/5 WHERE 类型 ∉ {'婚','公','丧','产'} AND 替上课老师 != ''))" },
+        { "name": "请假",     "expr": "IF(请假超额, 空, -MIN(100, 事假天数*参数.事假单价 + 病假天数*参数.病假单价))" },
+        { "name": "折扣",     "expr": "折扣函数(教研组长, 年级组长, 行政后勤, 班主任, 课时月费)" },
+        { "name": "合计1",    "expr": "课时月费 + 考勤奖 + 岗位奖 + 扣课时 + 补课.费用 + 请假 + 未参加.值 + 早读.小计 - 折扣" },
+        { "name": "合计2",    "expr": "(班主任.应发 + 教研组长 + 年级组长 + 行政后勤 + 行后) * 0.4" },
+        { "name": "合计",     "expr": "合计1 + 合计2" },
+        { "name": "上浮30%",  "expr": "合计 * 1.3" },
+        { "name": "实际发放", "expr": "ROUND(上浮30%, 0)" }
+      ] },
+    { "id": "xp", "name": "校聘", "output": { "sheet": "校聘" },
+      "overrides": [
+        { "name": "合计2",    "expr": "(班主任.应发 + 教研组长 + 年级组长 + 行政后勤 + 行后) * 1" },
+        { "name": "上浮30%",  "expr": null },
+        { "name": "实际发放", "expr": "ROUND(合计, 0)" }
+      ] }
+  ],
+
+  "outputs": [
+    { "id": "绩效模板", "mode": "patch-template", "file": "绩效.xlsx",
+      "apply": "inplace",   // A: 写回原文件+自动.bak；或 "copy" 另存结果副本（见 3.8）
+      "rowKey": { "column": "姓名", "matchMode": "normalized" },
+      "groups": [ { "group": "fxp", "sheet": "非校聘" }, { "group": "xp", "sheet": "校聘" } ],
+      "columns": [ { "field": "课时S", "header": "课时S", "numFmt": "0.00", "blank": "blank" },
+                   { "field": "考勤奖", "header": "考勤奖", "numFmt": "0",   "blank": "write0" },
+                   { "field": "实际发放", "header": "实际发放", "numFmt": "0", "blank": "blank" } ],
+      "backup": true, "dryRun": true },
+    { "id": "补课时新表", "mode": "new-file", "file": "补课时.xlsx",
+      "from": "补课", "columns": [ {"header":"姓名"}, {"header":"节数"}, {"header":"费用"} ],
+      "sheet": "替上课补课时" }
+  ]
+}</code></pre>
+      <p class="small">说明：<code>??</code> 表示缺值回退；<code>WHERE</code> 用于对明细行集合做条件过滤；分组支持
+      "基础字段继承 + overrides 覆盖"；<code>空/0/blank</code> 的语义在老代码里有明确区别，已建模为字段级行为。
+      表达式里的中文字段名/参数名只是显示语法，引擎内部用 id 引用。</p>
+    </div>
+  </details>
+
+  <div class="box good">
+    <b>评审点：</b>上面这个表达力是否够覆盖你心里"未来要加的"新场景？例如：<br>
+    · 新增一个台账类型（如"社团课时"）→ 只需加一个 <code>source</code> + 若干计算字段/输出列，不动代码；<br>
+    · 公式调整（如 折扣规则改成另一套）→ 改表达式；<br>
+    · 换输出模板/换列 → 改 <code>outputs</code>。<br>
+    如果你设想的新场景超出这个模型（例如需要"多 sheet 交叉回填""跨人员汇总生成汇总 sheet""从数据库读"），请在第 8 节补充。
+  </div>
+
+  <h3>3.5 仓库结构（已定：以本仓库为根重构，全 Rust）</h3>
+  <figure>
+    <div class="flowrow">
+      <div class="fnode" style="flex:2"><b>excel-kpi-tool/</b><br>
+        <span class="small">
+        docs/　　← 本文档与后续设计/技术约定<br>
+        engine/　← Rust 引擎库（Bevy Plugin 承载：scheme/校验、reader、calc DSL、writer/umya 适配）；不依赖 Godot，<b>cli 可选特性</b>以 headless bevy_app 跑同一套系统<br>
+        godot/　 ← Godot 4 工程（UI 场景、资源）；<code>godot/rust/</code> 为 workspace 成员，经 godot-bevy 挂载 engine 的 Plugin<br>
+        schemes/ ← 方案的模板与示例（含"老场景复刻.json"）<br>
+        testdata/← 对拍数据（把 example_data 整理进来做回归 golden）<br>
+        tools/　 ← 现有 xtask 工具（setup/check/对拍命令）<br>
+        Cargo.toml（workspace members: engine, godot/rust, tools）</span></div>
+    </div>
+    <figcaption>表 5｜最终目录布局（D5=本仓库重构）。engine 不依赖 Godot，可单独做 CLI/单测/对拍。</figcaption>
+  </figure>
+
+  <h3>3.6 Rust 技术栈下的 xlsx 读写设计（umya-spreadsheet）</h3>
+  <ul>
+    <li><b>读取</b>：<code>umya-spreadsheet</code> 读取工作簿到内存对象；解析层把"表头行 + 列映射 + 填充/续主 + 类型转换"抽象成通用 <code>TabularReader</code>，引擎只面对规整的行/列对象，不直接摸 XML。</li>
+    <li><b>模板回写</b>：用 umya 打开目标模板 → 定位行/列 → 只改目标单元格值（<code>set_sheet_value</code>），保留样式、合并单元格、列宽、其他 sheet；保存时<b>建议默认另存副本</b>，原文件自动备份。</li>
+    <li><b>隔离层</b>：引擎内部定义薄 trait（如 <code>WorkbookIO: read_table / open_template / write_cell / save</code>），umya 只作为其中一个实现。若某天遇到 umya 对特定 WPS 产物兼容不佳，可替换或补一个"worksheet XML 最小 patch"实现，不牵动上层。</li>
+    <li><b>新表生成</b>（补课时.xlsx 等）：仍走 umya 新建工作簿 + 表头/样式写入，同一 trait。</li>
+    <li><b>验证门</b>：M0 Spike 必须用真实模板（Excel 与 WPS 各一份产物）验证"写回后：样式逐格一致、无 repair 提示、公式缓存与合并单元格不受影响"，并落成自动化回归用例。</li>
+  </ul>
+
+  <h3 id="s37">3.7 方案的存储形态：JSON 文件 vs SQLite（评估结论：方案本体用文件，不用 SQLite）</h3>
+  <p>要回答"GUI 配好的方案如何记录"，先把要持久化的内容分成两类：<b>① 方案本体</b>（数据源映射、参数、公式、分组、输出定义、schemaVersion）——它<b>需要被 diff、评审、复制、跨月复用</b>；<b>② 运行痕迹</b>（某次运行的文件集、参数快照、结果、问题清单）——它是<b>日志性</b>数据。</p>
+  <table>
+    <tr><th>维度</th><th>方案 = 单个 JSON 文件</th><th>方案存 SQLite</th></tr>
+    <tr><td>人读 / 评审 / diff</td><td>优：git、编辑器可直接看差异；方案即"可评审产物"</td><td>差：二进制库，需导出才能看</td></tr>
+    <tr><td>导入 / 导出 / 分享 / 备份</td><td>直接复制一个文件</td><td>库文件整体拷或用 API 导出，麻烦</td></tr>
+    <tr><td>三端一致读取（Godot / CLI / 回归测试）</td><td>serde 反序列化，零额外依赖</td><td>每端都引入 rusqlite/sqlx，接入面大</td></tr>
+    <tr><td>版本升级 / 迁移</td><td>schemaVersion + 迁移函数（与 D4 一致）</td><td>还要维护 schema_migrations 表</td></tr>
+    <tr><td>按月的运行复用</td><td>方案跨月不变，仅把运行目录绑定到本月数据目录</td><td>方案仍不变，SQLite 无额外收益</td></tr>
+    <tr><td>损坏排查 / 应急修复</td><td>文本可直接审查、手工改回</td><td>需要 SQL 工具，普通用户无法自查</td></tr>
+    <tr><td>多用户并发写</td><td>不支持（单机单人场景可接受）</td><td>理论上支持，但本项目不需要</td></tr>
+    <tr><td>运行历史 / 审计（若做）</td><td>另写结构化日志（jsonl/csv）即可</td><td>天然适合，但属于 M4 可选项</td></tr>
+  </table>
+  <div class="box good">
+    <b>结论</b>：方案本体用<b>单个 JSON 文件</b>，不引入 SQLite。理由：方案是<b>跨月稳定的规则集</b>（每个月的差异只在数据目录），其价值在于可读、可 diff、可版本管理、可复制（复制后作为新学校/新规则集的基础）；文件形式与 D4/版本迁移一致，且 Godot、CLI、测试三端读取成本最低。
+    <br><b>运行痕迹</b>：MVP 先写结构化日志（每行一条 JSON：时间/方案哈希/输入文件指纹/结果汇总/问题清单）；若 M4 有"历史查询/趋势对比/审计报表"诉求，再引入本地 SQLite 存运行历史，不存方案本体。
+  </div>
+  <div class="box info">
+    <b>落地约定（已修正）：</b>方案是<b>跨月稳定复用的"规则集"</b>，不按月复制。一个方案（如 <code>schemes/高中月绩效.json</code>）定义一套数据源映射/参数/公式/分组/输出，可跨月反复使用；
+    每个月的差异只在于<b>本月台账所在目录</b>：运行台让老师"选择本月数据目录"（沿袭旧程序 <code>-d 工作目录</code> 的习惯），引擎把该目录绑定到占位符（如 <code>{monthDir}/课时.xlsx</code>）来解析输入，输出默认也写到该目录。
+    参数作为<b>规则常量</b>内嵌方案：仅在政策调整（如学期/年度改课时费、考勤奖）时在 GUI 中改值并<b>另存为新版本</b>（保留历史可 diff），而不是每月复制一份方案。
+  </div>
+
+  <h3 id="s38">3.8 回写在担心什么：三种输出模式的说明（Q3 决策材料）</h3>
+  <p><b>先说结论：</b>"回写模板"这件事本身在老程序里已被 Excelize 验证可行——担心点不是"能不能写"，而是下面四类<b>保真与安全</b>问题：</p>
+  <ol>
+    <li><b>格式保真</b>：模板是老师精心排的版（标题合并、行高列宽、边框底纹、数字格式、自动筛选、冻结窗格，甚至批注/图片/条件格式）。任何写库都要把整份文件重新打包；若库对某一项不忠实，就会"数字对了、表变样了"。逐格肉眼核对几百人×30 列不现实，所以 M0 要自动化"视觉等价"检查（对比改写前后 XML/样式表 + 抽样人工打开确认）。</li>
+    <li><b>公式与缓存</b>：模板若某些格是 Excel 公式（不是我们写入的值），写库可能破坏公式或缓存值，导致打开提示"修复/重算"或显示旧值。回写层应"只改目标单元格的值，其余一律不动"。</li>
+    <li><b>WPS 产物兼容</b>：学校文件很多由 WPS 保存，XML 可能有非标准痕迹。Go 的 excelize 对这些老文件已被验证；Rust 的 umya 需要用<b>同一批真实文件</b>做 Spike 验证，不过则落 3.6 的 XML 最小 patch 备胎。</li>
+    <li><b>原文件安全</b>：直接覆盖老师交来的文件，一旦写坏（崩溃/库 bug），唯一原件就没了 → 必须自动 .bak 备份，或另存为新结果文件。</li>
+  </ol>
+  <p>因此"回写"不是二选一，而是方案输出上的一种<b>策略字段</b>：</p>
+  <table>
+    <tr><th>模式</th><th>行为</th><th>优点</th><th>代价/风险</th></tr>
+    <tr><td><b>A · 写回原文件</b>（原地补丁）</td><td>打开老师当月模板 → 只改目标列 → 保存回原路径（先自动写 .bak）</td><td>与旧程序一致，老师按原文件名提交，习惯不变</td><td>原文件被改；靠 .bak + 运行前 diff 预览兜底</td></tr>
+    <tr><td><b>B · 另存结果副本</b></td><td>生成"绩效-2026-09-已算.xlsx"，原文件永不动</td><td>原文件零风险；可逐格与原文件对比</td><td>提交/命名多一步；需记住使用新文件</td></tr>
+    <tr><td><b>C · 内置模板生成</b></td><td>不依赖当月模板版式，按内置样式模板从零画新表</td><td>版式完全可控</td><td>工具要维护版式定义；老师自行改版式时难以跟随；仅适合"从零产物"（如补课时.xlsx）</td></tr>
+  </table>
+  <div class="box good">
+    <b>已定（2026-09-05）：每个输出可配置 <code>apply: inplace | copy</code>，面向老师的主流程默认 A（写回原文件，先自动 .bak），并保留 B（先核对再定稿）供切换；C（内置模板生成）仅用于"生成新文件"型输出。无论 A/B，写库保真要求相同，M0 的视觉等价验收门都必须过。</b>
+  </div>
+  <div class="decision" data-k="q3out">
+    <div class="q">Q3 选择（已定：A/B 可切换，默认 A）</div>
+    <div class="opts">
+      <label class="opt"><input type="radio" name="q3out" value="inplace"><span class="optname">A：默认写回原文件 + 自动 .bak</span></label>
+      <label class="opt"><input type="radio" name="q3out" value="copy"><span class="optname">B：默认另存结果副本</span></label>
+      <label class="opt rec"><input type="radio" name="q3out" value="switchable" checked><span class="optname">A/B 可切换（已确认，主流程默认 A）</span></label>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+  <h2>四、GUI 交互设计草案</h2>
+  <p>GUI 的目标用户是"会 Excel、不懂代码"的老师。原则：<b>每个步骤都有所见即所得的表格预览；错误直接指向"文件/表/行/列"；把复杂解析藏进向导。</b></p>
+  <div class="box info">
+    <b>按 Q1（老师自己跑）拆成两个界面档位：</b>默认打开的是<b>"月度运行向导"</b>（选本月台账目录 → 选方案（如 高中月绩效）→ 一键校验 → dry-run 预览 → 运行 → 结果/问题清单），老师每月只用这一个界面；
+    <b>"方案配置"作为单独编辑模式</b>（工具栏/菜单进入），用于新建/复制方案、改数据源映射、公式、参数与输出设置。普通老师不配置，只看运行向导的结果是否与自己的表一致。
+  </div>
+
+  <h3>4.1 信息架构</h3>
+  <table>
+    <tr><th>界面</th><th>核心内容</th></tr>
+    <tr><td><b>① 方案列表</b></td><td>已有方案卡片（名称/最近运行/参数版本）；新建/复制/导入导出；从"老场景模板"起步</td></tr>
+    <tr><td><b>② 数据源编辑</b></td><td>左侧方案树（数据源/参数/计算组/输出）；选中数据源后：文件选择、sheet 下拉、表头行、列对齐表（预期列名 ↔ 实际读到列 + 类型 + 样例值），解析技巧开关（向下填充/续主记录/忽略空行）</td></tr>
+    <tr><td><b>③ 参数页</b></td><td>参数网格（名称/数值/单位/说明），值直接存方案文件；支持从 Excel 粘贴批量填入；保存即形成新版本（保留历史）；可与历史版本做参数/公式 diff</td></tr>
+    <tr><td><b>④ 计算组与公式</b></td><td>字段列表 + 每字段表达式；表达式编辑器：字段/函数/参数自动补全、类型与引用即时校验、<b>试算面板</b>（选一人看中间值）；组间差异用"继承+覆盖"展示</td></tr>
+    <tr><td><b>⑤ 输出页</b></td><td>patch 模式：选模板文件 → 自动识别 sheet 与表头 → 把计算字段拖到列；每列设数字格式与空值策略；<b>选择回写模式（写回原文件+自动备份 / 另存结果副本）</b>；new-file 模式：配置表头与数据来源</td></tr>
+    <tr><td><b>⑥ 运行台</b></td><td>选择"本月文件集"（也可按目录一键带入）→ 校验 → dry-run 预览（每人每列数值 + 相对当前模板的 diff 标色）→ 执行 → 结果页（问题清单 + 日志 + 备份位置）</td></tr>
+  </table>
+
+  <h3>4.2 关键交互线框（低精度）</h3>
+  <figure>
+    <div class="flow">
+      <div class="fnode c1"><b>⑥ 运行台 · dry-run 预览</b><br>
+        <span class="small">
+        表格：行=人员（按模板顺序）| 列=输出字段 | 单元格=将写入值，与模板现值不同则标色（旧值→新值）<br>
+        左下：问题清单 tab（错误红/警告黄/提示灰，均可点击跳到 文件·sheet·行）；右下：审计摘要</span></div>
+      <div class="arrow">▼</div>
+      <div class="fnode c2"><b>② 数据源 · 列对齐</b><br>
+        <span class="small">
+        | 预期字段(方案) | 表头实际名 | 类型 | 样例前3值 | 状态(✓/缺列/类型不符) |<br>
+        下方：原始前 5 行网格，可点某列表头"以此列为 xx 字段"</span></div>
+      <div class="arrow">▼</div>
+      <div class="fnode c3"><b>④ 公式编辑 · 试算</b><br>
+        <span class="small">
+        [课时S] = <code>IF(请假超额, 0, 课时.课时)</code>　← 依赖高亮<br>
+        右侧试算：选择 张三 → 各输入值 → 本字段结果；引用环/未定义字段就地红波浪提示</span></div>
+    </div>
+    <figcaption>图 3｜三个核心编辑场景示意（GUI 细节在进入开发后与界面稿一并细化）</figcaption>
+  </figure>
+
+  <div class="box info"><b>设计取舍</b>：公式编辑允许"专家模式"直接写文本（粘 Excel 逻辑快），也提供"常用模式"下拉向导生成表达式；
+  方案文件是纯文本 JSON，便于 git 评审与 diff。</div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+  <h2>五、技术选型（决策台）</h2>
+  <p>以下五项已按 <b>2026-09-05 评审结果</b>将你的选择标为绿框"已定"。你仍可点选其他选项查看影响；本文档已按"已定项"的形态修订。</p>
+
+  <div class="decision" data-k="d2">
+    <div class="q">D2 · 引擎实现语言与 xlsx 读写库（已定：全 Rust + umya-spreadsheet）</div>
+    <div class="opts">
+      <label class="opt rec">
+        <input type="radio" name="d2" value="rust" checked>
+        <span class="optname">Rust + umya-spreadsheet（读 + 原格式回写）</span>
+        <div class="od">umya-spreadsheet 可打开既有 xlsx、改单元格后保存，宣称保留样式/合并/公式缓存；真实兼容度（尤其 WPS 产物）以 M0 Spike 实测为准。</div>
+        <div class="pro">＋ 全仓库单语言、工具链统一（prek/clippy/typos）；引擎作为纯库直接内嵌 Godot 扩展同进程；老语义用 Rust 重写</div>
+        <div class="con">－ 回写保格式依赖 umya 对真实模板（尤其 WPS 产物）的兼容度，需 M0 Spike 用 school 样例逐格对拍验证；预留 XML 最小 patch 备胎</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d2" value="go">
+        <span class="optname">Go + Excelize（引擎库 + CLI）</span>
+        <div class="od">备用方案：Excelize 已被老程序验证可读模板→写列→原地保存保留格式。</div>
+        <div class="pro">＋ 回写保格式零风险；老公式逐行对拍省力</div>
+        <div class="con">－ 与全 Rust 定稿矛盾；双语言、双构建链；GUI(Godot)侧仍需桥接</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d2" value="other">
+        <span class="optname">其他（说明）</span>
+        <div class="od">备选读写策略：calamine 读 + 自研 worksheet XML 最小 patch 写（仅在 umya 兼容性不足时局部使用）。</div>
+      </label>
+    </div>
+    <div class="impact" data-for="d2-rust">
+      <b>落地形状</b>：<code>engine/</code> 纯 Rust 库；包划分——<code>scheme</code>（模型+JSON+校验）→ <code>reader</code>（通用解析）→ <code>calc</code>（DSL 解释器+函数库+分组执行）→ <code>writer</code>（WorkbookIO trait；umya 实现：打开模板→定位行列→只改目标单元格→另存副本）→ 可选 <code>cli</code>。
+      GUI 经 godot-bevy 将同一 engine Plugin 挂载进 App；CLI/测试以 headless bevy_app 跑同一套系统。第一里程碑 = 用 example_data 对拍老程序输出逐格全绿。
+    </div>
+    <div class="impact" data-for="d2-go">
+      <b>若回退 Go</b>：engine/ 建 go module，GUI 侧改为以子进程/本地文件方式驱动，仓库回到双语言。仅当 M0 Spike 证明 umya 无法满足模板回写时考虑。
+    </div>
+  </div>
+
+  <div class="decision" data-k="d1">
+    <div class="q">D1 · GUI 壳（已定：沿用 Godot 脚手架做 GUI）</div>
+    <div class="opts">
+      <label class="opt rec">
+        <input type="radio" name="d1" value="godot" checked>
+        <span class="optname">Godot 4（复用 godot/ 工程做 UI）</span>
+        <div class="od">界面场景在 Godot 搭建；核心逻辑以 Bevy ECS（engine Plugin）实现并经 godot-bevy 桥接；GDScript 只做薄胶水。</div>
+        <div class="pro">＋ 复用现有仓库与 godot-bevy 架构；逻辑即 ECS 组件/资源/系统，可 headless 复用与单测</div>
+        <div class="con">－ 表格/公式编辑等富控件 Godot 无现成组件，需以 gdext 注册 Rust 自定义 Control 并经事件接入 ECS，UI 工作量高于 Web 技术栈</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d1" value="tauri">
+        <span class="optname">Tauri 2 + Vue3/Quasar（Rust 壳 + Web 前端）</span>
+        <div class="od">前端生态做表格/公式编辑器/网格预览最顺手，但与"Godot 做 UI"的定稿冲突，需引入第二套前端工程。</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d1" value="wails">
+        <span class="optname">Wails v2（Go 壳 + Web 前端）</span>
+        <div class="od">仅当 D2 回退 Go 才纳入考虑的"单二进制"方案。</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d1" value="web">
+        <span class="optname">纯 Web（本地小服务 + 浏览器打开）</span>
+        <div class="od">引擎起 HTTP/静态页；体验与分发最弱。仅可作开发期形态。</div>
+      </label>
+    </div>
+    <div class="impact" data-for="d1-godot">
+      <b>Godot 侧要点（按你的定稿：保留 Bevy ECS 作为核心逻辑实现架构）</b>：<code>godot/rust</code> 沿用 godot-bevy —— 核心逻辑做成 engine crate 的 Bevy Plugin（组件/资源/系统，含方案加载、校验、DAG 执行、运行状态机），经 #[bevy_app] 挂载；
+      Godot 场景 + GDScript 薄胶水负责外观与输入，事件经 godot-bevy 转发进 ECS。
+      富控件（列对齐表、结果预览网格、公式编辑器、方案树）若 GDScript 不便实现，用 gdext 注册 Rust 自定义 Control，但其数据读写一律走 ECS 命令/事件，UI 层不带业务逻辑。
+      同一 Plugin 另以 headless bevy_app 跑 CLI/回归对拍，不依赖 Godot。预览按需分页，避免一次渲染全校几百行×几十列卡顿。
+    </div>
+    <div class="impact" data-for="d1-tauri">
+      <b>Tauri 侧要点</b>：Tauri2 的 shell 插件/sidecar 调用引擎 exe；或把引擎编译为可执行文件随 bundle 发布。
+      前端与引擎之间建议走"一次性任务 + 结构化结果(JSON 行)"协议，避免双向长连接。
+    </div>
+    <div class="impact" data-for="d1-wails">
+      <b>Wails 要点</b>：绑定方法直接暴露引擎 API；需要引入 Wails CLI 到构建链。仓库将从 Rust workspace 转为 go+前端为主。
+    </div>
+  </div>
+
+  <div class="decision" data-k="d3">
+    <div class="q">D3 · 公式/规则引擎的形态（已定：轻量 DSL + 内置函数库）</div>
+    <div class="opts">
+      <label class="opt rec">
+        <input type="radio" name="d3" value="mini" checked>
+        <span class="optname">自研轻量 Excel 风格表达式 DSL + 内置函数库</span>
+        <div class="od">覆盖算术、IF/比较、ROUND/MIN/MAX/SUM-IF 条件聚合、?? 缺值、表查找；中文别名层。MVP 60~100 函数。</div>
+        <div class="pro">＋ 完全掌控错误信息与类型；与"分组覆盖/门控/空值语义"天然契合</div>
+        <div class="con">－ 要自己写词法/语法/求值（工程量 1~2 周内）；表达式演进需自己加</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d3" value="lib">
+        <span class="optname">引入现成表达式库起步（Go: expr-lang/govaluate；Rust: evalexpr 等）</span>
+        <div class="od">先用库表达式，自定义函数补 Excel 语义；不够再迁自研。</div>
+        <div class="pro">＋ 起步快</div>
+        <div class="con">－ 库语法与 Excel 习惯有差异；条件聚合/空值/多态需大量胶水</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d3" value="full">
+        <span class="optname">完整 Excel 公式语法引擎（如对接公式解析器/公式求值）</span>
+        <div class="od">老师可粘贴真正的 Excel 公式。</div>
+        <div class="pro">＋ 终极兼容</div>
+        <div class="con">－ 工程量最大（数组公式/引用语义/易失函数……）；不建议 MVP 做</div>
+      </label>
+    </div>
+    <div class="impact" data-for="d3-mini">
+      <b>DSL 语法示例</b>：<code>IF(请假超额, 0, 课时.课时 ?? 0)</code>、<code>SUM(请假替上课.天数 WHERE 类型!='公')</code>、
+      <code>折扣表查找(岗位等级)</code>。GUI 里字段/函数自动补全 + 试算，用户不需要懂语法也能拼出来。
+      <br><b>（Q4 已答：不会演进到 Excel 完整公式语法 → DSL 无需为 Excel 语法兼容预留解析层；要求是：报错能定位到字段/公式、函数库可随引擎版本扩展。）</b>
+    </div>
+  </div>
+
+  <div class="decision" data-k="d4">
+    <div class="q">D4 · 方案文件格式与版本（已定：JSON + 版本迁移）</div>
+    <div class="opts">
+      <label class="opt rec">
+        <input type="radio" name="d4" value="json" checked>
+        <span class="optname">JSON + schemaVersion 字段 + 显式迁移器</span>
+        <div class="od">serde/go encoding/json 原生支持；diff/评审友好；中文 label 只做显示层、内部用英文 id。</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d4" value="yaml">
+        <span class="optname">YAML</span>
+        <div class="od">可读性更好但引号/类型坑多，Go/Rust 都要额外依赖。</div>
+      </label>
+    </div>
+    <div class="impact" data-for="d4-json">
+      <b>约定</b>：内部字段一律英文 snake_case 标识符 + 可选中文字段名做展示；每份方案记录"由哪个 schemaVersion 生成"，升级时走迁移函数，保证旧方案仍可打开。
+    </div>
+  </div>
+
+  <div class="decision" data-k="d5">
+    <div class="q">D5 · 当前仓库（Godot/Rust 脚手架）怎么处理（已定：以本仓库为根重构）</div>
+    <div class="opts">
+      <label class="opt rec">
+        <input type="radio" name="d5" value="restructure" checked>
+        <span class="optname">以本仓库为根重构（按 3.5 布局；脚手架目录移除/归档）</span>
+        <div class="od">README、docs、CI 钩子、tools 按新架构重写；仓库尚无提交，历史包袱小。</div>
+      </label>
+      <label class="opt">
+        <input type="radio" name="d5" value="newrepo">
+        <span class="optname">另开新仓库，本仓库只作参考</span>
+        <div class="od">若你认为 scaffold 属于别的用途、或想彻底干净起步。</div>
+      </label>
+    </div>
+  </div>
+
+  <div class="box good">
+    <b>最终确认的组合（2026-09-05）：</b><b>D1=Godot 做 GUI · D2=Rust + umya-spreadsheet（原格式回写）· D3=轻量 DSL · D4=JSON+版本迁移 · D5=本仓库重构</b>。
+    工程含义：核心逻辑做成 Bevy Plugin 形态的 engine 库（不依赖 Godot），同进程被 godot-bevy 挂载、headless 被 CLI/回归测试复用；
+    umya 的保格式写回能力将在 M0 用 school 样例逐格对拍验证（含 WPS 产物），这是全项目风险最集中的一道闸。
+  </div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+  <h2>六、里程碑路线图</h2>
+  <div class="cols">
+    <div class="card"><div class="t">M0 · 地基与风险验证 <span class="small">(约 1~2 周)</span></div>
+      <div class="s">
+        · 仓库重构为 3.5 布局（已定）；engine 以 Bevy Plugin 成形；确认 godot-bevy 桥接与 headless CLI/测试链路可跑通<br>
+        · 引擎脚手架 + 方案 schema v0.1<br>
+        · <b>模板回写 Spike</b>：umya 打开绩效.xlsx → 写入目标列（0 位/2 位数字格式）→ 另存副本；与老输出逐格 diff + Excel/WPS 打开无 repair 提示<br>
+        · 用 example_data 建 <code>testdata/</code> 对拍基线（把老 exe 的输出存为 golden 文件）
+      </div></div>
+    <div class="card"><div class="t">M1 · 旧场景 100% 复刻（无 GUI）<span class="small">(约 2~3 周)</span></div>
+      <div class="s">
+        · 把老绩效流程写为"复刻方案.json"，引擎 CLI 跑通<br>
+        · 与 golden 文件逐格 diff 全绿（非校聘+校聘两 sheet、数字格式、空值语义）<br>
+        · 副流程补课时.xlsx 生成也对拍通过<br>
+        · 此里程碑是<b>全项目最重要的验收闸</b>——证明引擎语义正确后才做 GUI
+      </div></div>
+    <div class="card"><div class="t">M2 · Godot GUI 可用闭环 <span class="small">(约 4~6 周)</span></div>
+      <div class="s">
+        · Godot 界面骨架：方案列表/运行台；Rust 注册自定义控件（预览网格、列对齐表、方案树）<br>
+        · 方案管理 + 数据源配置（列对齐/预览/解析技巧）<br>
+        · 运行台：选文件集→校验→执行→问题清单/日志<br>
+        · 结果预览（先做"运行后 diff"，dry-run 后置）
+      </div></div>
+    <div class="card"><div class="t">M3 · 配置体验完善 <span class="small">(约 4~5 周)</span></div>
+      <div class="s">
+        · 参数页（含工作簿导入）、公式编辑器 + 试算（Godot 内嵌 Rust 编辑控件）<br>
+        · 输出列映射、dry-run 预览<br>
+        · 表达式编译错误定位（文件/行/字段）
+      </div></div>
+    <div class="card"><div class="t">M4 · 通用能力与打磨 <span class="small">(持续)</span></div>
+      <div class="s">
+        · 人员主档/别名/重名策略、复合键<br>
+        · 更多解析形态（多 sheet 数据源、更复杂主从）<br>
+        · 校验规则自定义、审计日志、参数快照对比、打包分发（安装包/自动更新）<br>
+        · 沉淀 2~3 个不同学校的真实方案做"通用性试金石"
+      </div></div>
+  </div>
+  <div class="box info"><b>每个里程碑都有可勾选的验收</b>，见操作台对应评分项。M1 不绿不上 M2——GUI 只是引擎的皮肤，语义正确优先。</div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+  <h2>七、风险与未决问题</h2>
+
+  <details>
+    <summary>R1 · 模板回写保格式（最大技术风险，已定用 umya-spreadsheet 验证）</summary>
+    <div class="body">
+      <p>定稿采用 <b>Rust + umya-spreadsheet</b> 做读与"原格式回写"。umya 对复杂模板（WPS 产物、合并单元格、筛选、公式缓存）的兼容性<b>必须用真实文件验证</b>，不能只信文档或宣传。</p>
+      <ul>
+        <li>缓解 1：引擎内定义 <code>WorkbookIO</code> trait 隔离 umya，必要时可局部换实现（calamine 读 + 自研 worksheet XML 最小 patch 写）而不动上层；</li>
+        <li>缓解 2：M0 Spike 验收 = 对 school 真实模板写入后逐格 diff + Excel/WPS 打开无 repair 提示，并固化为自动化回归；</li>
+        <li>缓解 3：回写默认<b>另存副本</b>，原文件保留备份，降低损坏风险。</li>
+      </ul>
+    </div>
+  </details>
+  <details>
+    <summary>R2 · 数据质量：姓名 join 的可靠性与重名</summary>
+    <div class="body">
+      <p>老代码只做去空白/换行。通用化后至少要：归一化规则可视化、join 缺失/重名/一人多值<b>上报问题清单</b>；
+      长稳方案是"教研组+姓名"复合键或引入人员主档（老模板本身有"教研组"列可作分组维度）。</p>
+    </div>
+  </details>
+  <details>
+    <summary>R3 · 老代码中疑似 Bug / 需对拍确认的语义</summary>
+    <div class="body">
+      <ul>
+        <li><code>collect.go</code> 的 <code>min()</code> 名为取最小、实为"取最后一个非零值"（用于折扣档位判断），需与你的真实意图确认并写进回归用例；</li>
+        <li>扣课时 = 课时周费/5 × 天数，仅对"有替课且类型∉{婚公丧产}"的假；请确认"婚/丧/产假"是否真的不扣；</li>
+        <li>请假扣款封顶 100 的规则、事假与病假是否叠加后封顶（代码是总额&gt;100 则取 100）；</li>
+        <li>示例 配置.xlsx 缺"是否对课时月费进行折扣"项、<code>领导绩效.xlsx</code> 有采集代码但未被主流程调用——确认是否为废弃流程。</li>
+      </ul>
+      <p class="small">建议在 M1 之前由你逐条确认，并把这些做成对拍用例，避免"复刻了一个 bug 还自洽"。</p>
+    </div>
+  </details>
+  <details>
+    <summary>R4 · 版本与追溯：参数随方案后如何审计</summary>
+    <div class="body">
+      <p>参数已内嵌方案文件（规则常量）。建议：方案带 schemaVersion + 编辑版本号；每次运行在日志中记录<b>方案文件哈希 + 输入文件指纹 + 逐人结果摘要</b>；GUI 提供"与历史版本对比"（参数/公式差异高亮），避免"某人为何少了 X"无法追溯。</p>
+    </div>
+  </details>
+  <details>
+    <summary>R5 · 未决问题（请在操作台逐条回答）</summary>
+    <div class="body">
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5a"><span>除"按人计算工资"外，是否要支持"生成汇总 sheet/汇总表"（如按教研组合计）？老系统没有。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5b"><span>绩效模板是否每月由教务老师新发？要不要"模板库/模板版本"管理？</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5c"><span>输入文件未来会只有 .xlsx，还是也要 .xls/.csv（如从别的系统导出）？</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5d"><span>运行环境是否可能含 WPS（老文件能看到 WPS 写入痕迹）？需要兼容 WPS 生成的 xlsx。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5e"><span>是否要多人/多电脑共用同一份方案（如放共享盘）？只要"方案是单文件 JSON"即可满足。</span></label>
+      <label class="chk"><input type="checkbox" class="qchk" data-q="R5f"><span>是否需要"Excel 里嵌入宏/按钮"让老师在 Excel 里直接点运行？（WPS/Excel 宏兼容是另一个量级的工作）</span></label>
+    </div>
+  </details>
+  <details>
+    <summary>R6 · Godot 做"编辑器型 UI"的开发成本（已定 D1 后的主要工作量风险）</summary>
+    <div class="body">
+      <p>Godot 的长项是游戏 UI；本工具大量是<b>数据表格/表单/树/富文本编辑</b>交互。缓解：把高复用富控件（可排序列对齐表、结果预览网格、表达式编辑器）
+      用 Rust+godot-rust 实现为自定义 Control 并注册复用；GDScript 只做场景胶水；每个控件单独做成小 demo 验证性能与输入法（中文输入）再铺开。</p>
+    </div>
+  </details>
+
+  <h3>决策联动速查</h3>
+  <table>
+    <tr><th>决策</th><th>确认值（2026-09-05）</th><th>关键影响</th></tr>
+    <tr><td>D1 壳</td><td>Godot 4（沿用 godot/ 脚手架）</td><td>核心逻辑保留 Bevy ECS（engine Plugin）；富控件自建并经 ECS 事件接入</td></tr>
+    <tr><td>D2 引擎</td><td>Rust + umya-spreadsheet</td><td>原格式回写由 M0 Spike 逐格对拍验证；引擎纯库被 Godot 与 CLI 共用</td></tr>
+    <tr><td>D3 公式</td><td>自研轻量 DSL</td><td>精控空值/分组/门控语义，1~2 周</td></tr>
+    <tr><td>D4 配置</td><td>JSON + 版本迁移</td><td>git diff 友好、可版本化</td></tr>
+    <tr><td>D5 仓库</td><td>本仓库重构</td><td>无提交历史包袱，直接按新布局清理</td></tr>
+    <tr><td>Q3 回写策略</td><td>A/B 可切换（<code>apply</code>），默认写回原文件+自动备份</td><td>保真要求恒定；M0 视觉等价验收门必过</td></tr>
+  </table>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+  <h2>八、评审操作台</h2>
+  <p>逐节给出你的态度（👍 通过 / 🤔 有保留 / 👎 不认同），在"综合意见"里写要点，最后点"导出评审意见"复制文本贴回对话。</p>
+
+  <div class="box">
+    <h4>各节评分</h4>
+    <table>
+      <tr><th>评审对象</th><th>态度</th></tr>
+      <tr><td>S1 现状解剖与语义还原（对拍基线）</td><td class="rate" data-sec="s1">
+        <label><input type="radio" name="rt_s1" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s1" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s1" value="3"><span>👎 不认同</span></label></td></tr>
+      <tr><td>S2 "通用"边界与需求假设</td><td class="rate" data-sec="s2">
+        <label><input type="radio" name="rt_s2" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s2" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s2" value="3"><span>👎 不认同</span></label></td></tr>
+      <tr><td>S3 目标架构与领域模型（Scheme 表达力）</td><td class="rate" data-sec="s3">
+        <label><input type="radio" name="rt_s3" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s3" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s3" value="3"><span>👎 不认同</span></label></td></tr>
+      <tr><td>S4 GUI 交互草案</td><td class="rate" data-sec="s4">
+        <label><input type="radio" name="rt_s4" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s4" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s4" value="3"><span>👎 不认同</span></label></td></tr>
+      <tr><td>S5 技术选型决策台</td><td class="rate" data-sec="s5">
+        <label><input type="radio" name="rt_s5" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s5" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s5" value="3"><span>👎 不认同</span></label></td></tr>
+      <tr><td>S6 里程碑路线</td><td class="rate" data-sec="s6">
+        <label><input type="radio" name="rt_s6" value="1"><span>👍 通过</span></label>
+        <label><input type="radio" name="rt_s6" value="2"><span>🤔 有保留</span></label>
+        <label><input type="radio" name="rt_s6" value="3"><span>👎 不认同</span></label></td></tr>
+    </table>
+  </div>
+
+  <div class="box">
+    <h4>综合意见 / 补充场景</h4>
+    <textarea id="comments" placeholder="例如：我倾向引擎用 Rust 因为……；未来会新增……；S2 的 A2 不同意，因为……"></textarea>
+  </div>
+
+  <div class="box">
+    <button class="btn pri" id="exportBtn">导出评审意见（复制文本）</button>
+    <button class="btn" id="clearBtn">清除本地记录</button>
+    <p class="hint">导出内容 = 各决策选择 + 需求假设勾选 + 未决问题勾选 + 各节评分 + 综合意见。粘贴回对话即可，我会据此修改设计稿。</p>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var store = null;
+  try { store = window.localStorage; } catch(e){ store = null; }
+  function save(k,v){ if(store){ try{ store.setItem(k,v); }catch(e){} } }
+  function load(k){ if(store){ try{ return store.getItem(k); }catch(e){ return null; } } return null; }
+
+  var nav = document.getElementById('toc');
+  var links = Array.prototype.slice.call(nav.querySelectorAll('a'));
+  var secs = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function spy(){
+    var y = window.scrollY + 80, cur = secs[0];
+    secs.forEach(function(s){ if(s && s.offsetTop <= y) cur = s; });
+    links.forEach(function(a){ a.classList.toggle('on', a.getAttribute('href') === '#' + (cur ? cur.id : '')); });
+  }
+  window.addEventListener('scroll', spy, {passive:true}); spy();
+
+  var decisions = Array.prototype.slice.call(document.querySelectorAll('.decision'));
+  decisions.forEach(function(d){
+    var radios = d.querySelectorAll('input[type=radio]');
+    var key = d.getAttribute('data-k');
+    var saved = load('dec-' + key);
+    if(saved){
+      var target = d.querySelector('input[value="' + saved + '"]');
+      if(target){ target.checked = true; }
+    }
+    function refresh(){
+      var val = d.querySelector('input:checked');
+      d.querySelectorAll('.impact').forEach(function(imp){ imp.classList.remove('show'); });
+      if(val){
+        var imp = d.querySelector('.impact[data-for="' + key + '-' + val.value + '"]');
+        if(imp){ imp.classList.add('show'); }
+        save('dec-' + key, val.value);
+      }
+    }
+    radios.forEach(function(r){ r.addEventListener('change', refresh); });
+    refresh();
+  });
+
+  var rates = Array.prototype.slice.call(document.querySelectorAll('.rate'));
+  rates.forEach(function(r){
+    var radios = r.querySelectorAll('input');
+    function paint(){
+      radios.forEach(function(rd){
+        var lab = rd.closest('label');
+        lab.classList.remove('on1','on2','on3');
+        if(rd.checked) lab.classList.add('on' + rd.value);
+      });
+    }
+    function apply(rd){
+      paint();
+      save('rate-' + r.getAttribute('data-sec'), rd.value);
+    }
+    var saved = load('rate-' + r.getAttribute('data-sec'));
+    if(saved){
+      var t = r.querySelector('input[value="' + saved + '"]');
+      if(t){ t.checked = true; }
+    }
+    paint();
+    radios.forEach(function(rd){ rd.addEventListener('change', function(){ apply(rd); }); });
+    // 兼容个别环境 change 事件不触发的兜底
+    radios.forEach(function(rd){ rd.addEventListener('click', function(){ apply(rd); }); });
+  });
+
+  Array.prototype.slice.call(document.querySelectorAll('.qchk')).forEach(function(c){
+    var saved = load('q-' + c.getAttribute('data-q'));
+    if(saved === '1') c.checked = true;
+    c.addEventListener('change', function(){ save('q-' + c.getAttribute('data-q'), c.checked ? '1' : '0'); });
+  });
+
+  var ta = document.getElementById('comments');
+  var taSaved = load('comments'); if(taSaved){ ta.value = taSaved; }
+  ta.addEventListener('input', function(){ save('comments', ta.value); });
+
+  function optLabel(name){
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    if(!el) return '(未选)';
+    var d = el.closest('.opt');
+    var t = d ? d.querySelector('.optname').textContent : el.value;
+    return el.value + ' — ' + t.trim();
+  }
+  function labelFor(name){ return { d1:'D1 GUI 壳', d2:'D2 引擎', d3:'D3 公式形态', d4:'D4 配置格式', d5:'D5 仓库处理', q3out:'Q3 回写模式' }[name] || name; }
+  function checkedQs(prefix){
+    var out = [];
+    var all = document.querySelectorAll('.qchk:checked');
+    for(var i=0;i<all.length;i++){
+      var q = all[i].getAttribute('data-q');
+      if(q.indexOf(prefix) === 0) out.push(q);
+    }
+    return out;
+  }
+  function rateText(sec){
+    var el = document.querySelector('input[name="rt_' + sec + '"]:checked');
+    var map = { '1':'👍 通过', '2':'🤔 有保留', '3':'👎 不认同' };
+    return el ? (map[el.value] || el.value) : '(未评)';
+  }
+  var ratingMap = { s1:'S1 现状解剖', s2:'S2 边界与假设', s3:'S3 架构与模型', s4:'S4 GUI 草案', s5:'S5 技术选型', s6:'S6 路线' };
+
+  document.getElementById('exportBtn').addEventListener('click', function(){
+    var lines = [];
+    lines.push('===== 评审意见：通用Excel薪酬工具 设计稿 v0.6（评审完成） =====');
+    lines.push('');
+    lines.push('【技术选型】');
+    ['d1','d2','d3','d4','d5'].forEach(function(k){ lines.push('- ' + labelFor(k) + ': ' + optLabel(k)); });
+    lines.push('- ' + labelFor('q3out') + ': ' + optLabel('q3out'));
+    lines.push('');
+    lines.push('【需求假设 已勾选确认】' + (checkedQs('A').join(',') || '(无)'));
+    lines.push('');
+    lines.push('【各节评分】');
+    Object.keys(ratingMap).forEach(function(s){ lines.push('- ' + ratingMap[s] + ': ' + rateText(s)); });
+    lines.push('');
+    lines.push('【未决问题 已勾选】' + (checkedQs('R').join(',') || '(无)'));
+    lines.push('');
+    lines.push('【综合意见/补充场景】');
+    lines.push(ta.value.trim() || '(空)');
+    var text = lines.join('\n');
+    function fallbackCopy(t){
+      var pre = document.createElement('textarea');
+      pre.value = t; pre.style.position='fixed'; pre.style.opacity='0';
+      document.body.appendChild(pre); pre.select();
+      try{ document.execCommand('copy'); }catch(e){}
+      document.body.removeChild(pre);
+    }
+    function done(){ alert('已复制，请粘贴回对话。\n若复制失败，请手动全选导出内容。'); }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, function(){ fallbackCopy(text); done(); });
+    } else { fallbackCopy(text); done(); }
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', function(){
+    if(!confirm('清除本地记录（选择/评分/勾选/意见）？')) return;
+    if(store){
+      var keys = [];
+      for(var i=0;i<store.length;i++){
+        var k = store.key(i);
+        if(k && k !== '') keys.push(k);
+      }
+      keys.forEach(function(k){ store.removeItem(k); });
+    }
+    location.reload();
+  });
+})();
+</script>
+</body>
+</html>
