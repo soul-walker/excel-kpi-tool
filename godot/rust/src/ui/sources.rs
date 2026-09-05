@@ -14,7 +14,7 @@ use bevy::prelude::{Res, ResMut};
 use godot::builtin::Vector2;
 use godot::classes::control::SizeFlags;
 use godot::classes::{
-    Button, CheckButton, HBoxContainer, Label, LineEdit, OptionButton, RichTextLabel, VBoxContainer,
+    Button, CheckButton, GridContainer, Label, LineEdit, OptionButton, RichTextLabel, VBoxContainer,
 };
 use godot::obj::NewAlloc;
 use godot::prelude::Gd;
@@ -119,6 +119,26 @@ pub fn render_all(
     render_cols(nodes, doc, cols, godot);
 }
 
+/// 表头灰色样式。
+fn head_label(
+    grid: &mut GridContainer,
+    text: &str,
+    min_x: f32,
+    expand: bool,
+    gray: godot::builtin::Color,
+) {
+    let mut label = Label::new_alloc();
+    label.set_text(text);
+    label.set_modulate(gray);
+    if min_x > 0.0 {
+        label.set_custom_minimum_size(Vector2::new(min_x, 0.0));
+    }
+    if expand {
+        label.set_h_size_flags(SizeFlags::EXPAND_FILL);
+    }
+    grid.add_child(&label);
+}
+
 fn render_sources(
     nodes: &EditorNodes,
     doc: &EditorDoc,
@@ -146,69 +166,71 @@ fn render_sources(
         return;
     }
 
+    let gray = godot::builtin::Color::from_rgb(0.62, 0.62, 0.62);
+    let mut grid = GridContainer::new_alloc();
+    grid.set_name("SourcesGrid");
+    grid.set_columns(6);
+    grid.add_theme_constant_override("h_separation", 6);
+    grid.add_theme_constant_override("v_separation", 2);
+    // 表头：源 / id / 文件 / sheet / 操作
+    head_label(&mut grid, "源", 40.0, false, gray);
+    head_label(&mut grid, "id", 130.0, false, gray);
+    head_label(&mut grid, "文件（月份目录下）", 0.0, true, gray);
+    head_label(&mut grid, "sheet", 110.0, false, gray);
+    head_label(&mut grid, "列映射", 0.0, false, gray);
+    head_label(&mut grid, "删除", 0.0, false, gray);
+
     for (i, s) in srcs.iter().enumerate() {
         let id = s.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let file = s.get("file").and_then(|v| v.as_str()).unwrap_or("");
         let sheet = s.get("sheet").and_then(|v| v.as_str()).unwrap_or("");
 
-        let mut card = VBoxContainer::new_alloc();
-        card.set_name(&format!("SourceCard{i}"));
-        card.add_theme_constant_override("separation", 2);
-
-        // 行1：序号 / id / sheet / 列映射 / 删除
-        let mut line1 = HBoxContainer::new_alloc();
-        line1.add_theme_constant_override("separation", 4);
+        // 列0：源序号
         let mut idx_label = Label::new_alloc();
         idx_label.set_text(&format!("源{}", i + 1));
-        idx_label.set_custom_minimum_size(Vector2::new(38.0, 0.0));
-        line1.add_child(&idx_label);
+        idx_label.set_custom_minimum_size(Vector2::new(40.0, 0.0));
+        grid.add_child(&idx_label);
 
+        // 列1：id
         let mut id_edit = LineEdit::new_alloc();
         id_edit.set_text(id);
         id_edit.set_placeholder("id");
-        id_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
+        id_edit.set_custom_minimum_size(Vector2::new(130.0, 0.0));
         id_edit.set_tooltip_text("数据源标识（派生/聚合按 id 引用；可用中文，如 课时表）");
-        line1.add_child(&id_edit);
+        grid.add_child(&id_edit);
 
-        let mut sheet_edit = LineEdit::new_alloc();
-        sheet_edit.set_text(sheet);
-        sheet_edit.set_placeholder("sheet 名");
-        sheet_edit.set_custom_minimum_size(Vector2::new(92.0, 0.0));
-        line1.add_child(&sheet_edit);
-
-        let mut col_btn = Button::new_alloc();
-        col_btn.set_text("列映射");
-        line1.add_child(&col_btn);
-
-        let mut del_btn = Button::new_alloc();
-        del_btn.set_text("删除");
-        line1.add_child(&del_btn);
-        card.add_child(&line1);
-
-        // 行2：相对月份目录的文件名
-        let mut line2 = HBoxContainer::new_alloc();
-        line2.add_theme_constant_override("separation", 4);
-        let mut file_label = Label::new_alloc();
-        file_label.set_text("文件");
-        file_label.set_custom_minimum_size(Vector2::new(38.0, 0.0));
-        line2.add_child(&file_label);
+        // 列2：相对月份目录的文件名（占满剩余宽度）
         let mut file_edit = LineEdit::new_alloc();
         file_edit.set_text(&display_file(file));
-        file_edit.set_placeholder("课时.xlsx（月份目录下文件名）");
+        file_edit.set_placeholder("课时.xlsx");
         file_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
         file_edit.set_tooltip_text(
             "相对运行台所选月份目录的文件名；旧版 {monthDir}/ 前缀保存时自动去掉",
         );
-        line2.add_child(&file_edit);
-        card.add_child(&line2);
+        grid.add_child(&file_edit);
 
-        box_node.add_child(&card);
+        // 列3：sheet
+        let mut sheet_edit = LineEdit::new_alloc();
+        sheet_edit.set_text(sheet);
+        sheet_edit.set_placeholder("Sheet1");
+        sheet_edit.set_custom_minimum_size(Vector2::new(110.0, 0.0));
+        grid.add_child(&sheet_edit);
+
+        // 列4/5：列映射、删除
+        let mut col_btn = Button::new_alloc();
+        col_btn.set_text("列映射");
+        grid.add_child(&col_btn);
+        let mut del_btn = Button::new_alloc();
+        del_btn.set_text("删除");
+        grid.add_child(&del_btn);
+
         rows.id_edits.push(id_edit);
         rows.file_edits.push(file_edit);
         rows.sheet_edits.push(sheet_edit);
         rows.col_buttons.push((i as i32, col_btn));
         rows.del_buttons.push((i as i32, del_btn));
     }
+    box_node.add_child(&grid);
 }
 
 fn render_cols(nodes: &EditorNodes, doc: &EditorDoc, cols: &mut ColRows, godot: &mut GodotAccess) {
@@ -250,6 +272,19 @@ fn render_cols(nodes: &EditorNodes, doc: &EditorDoc, cols: &mut ColRows, godot: 
         return;
     }
 
+    let gray = godot::builtin::Color::from_rgb(0.62, 0.62, 0.62);
+    let mut grid = GridContainer::new_alloc();
+    grid.set_name("ColsGrid");
+    grid.set_columns(5);
+    grid.add_theme_constant_override("h_separation", 6);
+    grid.add_theme_constant_override("v_separation", 2);
+    // 表头：表头名 / 别名 / 类型 / 主键 / 操作
+    head_label(&mut grid, "表头名（Excel 列标题）", 0.0, true, gray);
+    head_label(&mut grid, "别名（表达式引用）", 150.0, false, gray);
+    head_label(&mut grid, "类型", 0.0, false, gray);
+    head_label(&mut grid, "主键", 0.0, false, gray);
+    head_label(&mut grid, "删除", 0.0, false, gray);
+
     for (j, c) in columns.iter().enumerate() {
         let header = c.get("header").and_then(|v| v.as_str()).unwrap_or("");
         let alias = c.get("alias").and_then(|v| v.as_str()).unwrap_or("");
@@ -259,47 +294,48 @@ fn render_cols(nodes: &EditorNodes, doc: &EditorDoc, cols: &mut ColRows, godot: 
             .unwrap_or("text");
         let key = c.get("key").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        let mut row = HBoxContainer::new_alloc();
-        row.set_name(&format!("ColRow{j}"));
-        row.add_theme_constant_override("separation", 4);
-
+        // 列0：表头名
         let mut header_edit = LineEdit::new_alloc();
         header_edit.set_text(header);
         header_edit.set_placeholder("表头名");
         header_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
         header_edit.set_tooltip_text("Excel 列标题文字（留空则用别名按列序定位）");
-        row.add_child(&header_edit);
+        grid.add_child(&header_edit);
 
+        // 列1：别名
         let mut alias_edit = LineEdit::new_alloc();
         alias_edit.set_text(alias);
         alias_edit.set_placeholder("别名");
-        alias_edit.set_custom_minimum_size(Vector2::new(130.0, 0.0));
+        alias_edit.set_custom_minimum_size(Vector2::new(150.0, 0.0));
         alias_edit.set_tooltip_text("引擎内引用名（表达式 / key 用），可中文");
-        row.add_child(&alias_edit);
+        grid.add_child(&alias_edit);
 
+        // 列2：类型
         let mut type_btn = OptionButton::new_alloc();
         for (_, label) in COL_TYPES {
             type_btn.add_item(label);
         }
         type_btn.select(col_type_index(ty));
-        row.add_child(&type_btn);
+        grid.add_child(&type_btn);
 
+        // 列3：主键
         let mut key_check = CheckButton::new_alloc();
         key_check.set_text("主键");
         key_check.set_pressed(key);
-        row.add_child(&key_check);
+        grid.add_child(&key_check);
 
+        // 列4：删除
         let mut del_btn = Button::new_alloc();
         del_btn.set_text("删除");
-        row.add_child(&del_btn);
+        grid.add_child(&del_btn);
 
-        box_node.add_child(&row);
         cols.header_edits.push(header_edit);
         cols.alias_edits.push(alias_edit);
         cols.type_buttons.push(type_btn);
         cols.key_checks.push(key_check);
         cols.del_buttons.push((j as i32, del_btn));
     }
+    box_node.add_child(&grid);
 }
 
 // ---------- 动态信号连接 ----------
