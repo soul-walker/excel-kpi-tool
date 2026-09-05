@@ -211,6 +211,187 @@ fn eval_field(node: &Node, group_rows: &[CalcRow], comp: &HashMap<String, Value>
     .map_err(Error::Runtime)
 }
 
+// ---- 按人聚合 / 分组字段逐人求值（绩效复刻核心）----
+
+use std::collections::BTreeSet;
+
+/// 明细类 id：被任一 aggregate 引用的表（行粒度，不是“一人一行”）。
+pub fn detail_ids(scheme: &Scheme) -> BTreeSet<String> {
+    scheme.aggregates.iter().map(|a| a.from.clone()).collect()
+}
+
+fn person_col(scheme: &Scheme) -> String {
+    scheme.entity.key_field.clone()
+}
+
+fn key_value<'a>(row: &'a CalcRow, key: &str) -> Option<&'a Value> {
+    row.get(key)
+}
+
+/// 参数表：路径 `参数.x` 或裸名 x → 值。
+pub fn param_lookup(scheme: &Scheme) -> HashMap<String, Value> {
+    let mut m = HashMap::new();
+    for p in &scheme.parameters {
+        let v = match &p.value {
+            crate::scheme::ParamValue::Integer(i) => Value::Num(*i as f64),
+            crate::scheme::ParamValue::Float(f) => Value::Num(*f),
+            crate::scheme::ParamValue::Boolean(b) => Value::Bool(*b),
+            crate::scheme::ParamValue::Text(s) => Value::Str(s.clone()),
+        };
+        m.insert(p.name.clone(), v);
+    }
+    m
+}
+
+/// 聚合结果：agg.id → (person → value)。依赖按 scheme.aggregates 顺序（引用前序聚合）。
+pub fn compute_aggregates(
+    scheme: &Scheme,
+    run: &SchemeRun,
+) -> Result<BTreeMap<String, BTreeMap<String, Value>>> {
+    let params = param_lookup(scheme);
+    let mut out: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+
+    for agg in &scheme.aggregates {
+        let rows = rows_for(&agg.from, &run.source_tables, &run.derived_tables)?;
+        let mut by_person: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
+        for r in rows {
+            if let Some(v) = key_value(&r, &agg.group_by) {
+                by_person.entry(value_key(v)).or_default().push(r);
+            }
+        }
+        let node = calc::parse(&agg.expr)
+            .map_err(|e| Error::Runtime(format!("聚合 {} 表达式解析失败: {e}", agg.id)))?;
+
+        let mut per_person: BTreeMap<String, Value> = BTreeMap::new();
+        for (person, group_rows) in &by_person {
+            let val = calc::eval_rows(
+                &node,
+                &|p| resolve_plain(p, &out, &params, person),
+                group_rows,
+            )
+            .map_err(|e| Error::Runtime(format!("聚合 {} 求值失败: {e}", agg.id)))?;
+            per_person.insert(person.clone(), val);
+        }
+        out.insert(agg.id.clone(), per_person);
+    }
+    Ok(out)
+}
+
+/// 解析：单段路径 → 已算聚合(按人) 或 参数裸名；两段 `参数.x` → 参数。
+fn resolve_plain(
+    p: &[String],
+    aggs: &BTreeMap<String, BTreeMap<String, Value>>,
+    params: &HashMap<String, Value>,
+    person: &str,
+) -> Option<Value> {
+    match p {
+        [single] => {
+            if let Some(by_person) = aggs.get(single)
+                && let Some(v) = by_person.get(person)
+            {
+                return Some(v.clone());
+            }
+            params.get(single).cloned()
+        }
+        _ => {
+            if p.len() == 2 && p[0] == "参数" {
+                params.get(&p[1]).cloned()
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// 分组字段有效集：以 groups[0] 为共享基础字段，后续组用 overrides 覆盖/停用。
+pub fn effective_fields(scheme: &Scheme, group_id: &str) -> Result<Vec<(String, Option<String>)>> {
+    let base = scheme
+        .groups
+        .first()
+        .ok_or_else(|| Error::Runtime("方案缺少计算分组".into()))?;
+    let mut map: Vec<(String, Option<String>)> = base
+        .fields
+        .iter()
+        .map(|f| (f.name.clone(), f.expr.clone()))
+        .collect();
+    let group = scheme
+        .groups
+        .iter()
+        .find(|g| g.id == group_id)
+        .ok_or_else(|| Error::Runtime(format!("找不到分组 {group_id}")))?;
+    for o in &group.overrides {
+        if let Some(pos) = map.iter().position(|(n, _)| n == &o.name) {
+            map[pos].1 = o.expr.clone();
+        } else if o.expr.is_some() {
+            map.push((o.name.clone(), o.expr.clone()));
+        }
+    }
+    Ok(map)
+}
+
+/// 计算某人在某组的全部字段。
+pub fn compute_group_fields_for(
+    scheme: &Scheme,
+    run: &SchemeRun,
+    aggs: &BTreeMap<String, BTreeMap<String, Value>>,
+    group_id: &str,
+    person: &str,
+) -> Result<BTreeMap<String, Value>> {
+    let fields = effective_fields(scheme, group_id)?;
+    let params = param_lookup(scheme);
+    let key = person_col(scheme);
+    let details = detail_ids(scheme);
+    let mut computed: BTreeMap<String, Value> = BTreeMap::new();
+
+    for (name, expr_text) in fields {
+        let Some(text) = expr_text else {
+            continue;
+        };
+        let node =
+            calc::parse(&text).map_err(|e| Error::Runtime(format!("字段 {name} 解析失败: {e}")))?;
+        let value = calc::eval(&node, &|p| {
+            if let [single] = p {
+                if let Some(v) = computed.get(single) {
+                    return Some(v.clone());
+                }
+                if let Some(by_person) = aggs.get(single)
+                    && let Some(v) = by_person.get(person)
+                {
+                    return Some(v.clone());
+                }
+                return params.get(single).cloned();
+            }
+            if p.len() == 2 && p[0] == "参数" {
+                return params.get(&p[1]).cloned();
+            }
+            if p.len() == 2 && !details.contains(&p[0]) {
+                return lookup_scalar(run, &p[0], &key, person, &p[1]);
+            }
+            None
+        })
+        .map_err(|e| Error::Runtime(format!("字段 {name} 求值失败: {e}")))?;
+        computed.insert(name, value);
+    }
+    Ok(computed)
+}
+
+fn lookup_scalar(
+    run: &SchemeRun,
+    src: &str,
+    key_col: &str,
+    person: &str,
+    col: &str,
+) -> Option<Value> {
+    let rows = match (run.source_tables.get(src), run.derived_tables.get(src)) {
+        (Some(t), _) => table_to_rows(t),
+        (None, Some(d)) => d.rows.clone(),
+        (None, None) => return None,
+    };
+    rows.into_iter()
+        .find(|r| key_value(r, key_col).map(value_key).as_deref() == Some(person))
+        .and_then(|r| r.get(col).cloned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,5 +569,127 @@ mod tests {
             calamine::Data::Float(f) => *f,
             _ => 0.0,
         }
+    }
+
+    #[test]
+    fn aggregates_and_group_fields() {
+        use crate::scheme::{AggregateSpec, GroupSpec, ParamValue, Parameter};
+        use crate::table::{Column as TColumn, Row as TRow, Table as TTable};
+
+        let keshi = TTable {
+            columns: vec![
+                TColumn {
+                    alias: "姓名".into(),
+                    header: "姓名".into(),
+                },
+                TColumn {
+                    alias: "课时".into(),
+                    header: "课时".into(),
+                },
+            ],
+            rows: vec![TRow {
+                cells: vec![CellValue::Text("张".into()), CellValue::Float(20.0)],
+            }],
+        };
+        let qingjia = TTable {
+            columns: vec![
+                TColumn {
+                    alias: "姓名".into(),
+                    header: "姓名".into(),
+                },
+                TColumn {
+                    alias: "类型".into(),
+                    header: "类型".into(),
+                },
+                TColumn {
+                    alias: "天数".into(),
+                    header: "天数".into(),
+                },
+            ],
+            rows: vec![
+                TRow {
+                    cells: vec![
+                        CellValue::Text("张".into()),
+                        CellValue::Text("事".into()),
+                        CellValue::Float(2.0),
+                    ],
+                },
+                TRow {
+                    cells: vec![
+                        CellValue::Text("张".into()),
+                        CellValue::Text("公".into()),
+                        CellValue::Float(3.0),
+                    ],
+                },
+            ],
+        };
+        let run = SchemeRun {
+            source_tables: HashMap::from([
+                ("keshi".to_string(), keshi),
+                ("qingjia".to_string(), qingjia),
+            ]),
+            derived_tables: HashMap::new(),
+        };
+
+        let mut scheme = Scheme::default();
+        scheme.entity.key_field = "姓名".into();
+        scheme.parameters = vec![
+            Parameter {
+                name: "请假超过天数".into(),
+                label: None,
+                value_type: ColumnType::Integer,
+                value: ParamValue::Integer(2),
+            },
+            Parameter {
+                name: "课时费".into(),
+                label: None,
+                value_type: ColumnType::Decimal,
+                value: ParamValue::Float(1.5),
+            },
+        ];
+        scheme.aggregates = vec![
+            AggregateSpec {
+                id: "请假超总天数".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                expr: "SUM(天数 WHERE 类型 != '公')".into(),
+            },
+            AggregateSpec {
+                id: "请假超额".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                expr: "请假超总天数 >= 参数.请假超过天数".into(),
+            },
+        ];
+        scheme.groups = vec![GroupSpec {
+            id: "fxp".into(),
+            name: "非校聘".into(),
+            match_sheet: None,
+            fields: vec![
+                FieldExpr {
+                    name: "课时S".into(),
+                    expr: Some("keshi.课时 ?? 0".into()),
+                },
+                FieldExpr {
+                    name: "课时费".into(),
+                    expr: Some("课时S * 参数.课时费".into()),
+                },
+                FieldExpr {
+                    name: "发放".into(),
+                    expr: Some("IF(请假超额, 0, 课时费)".into()),
+                },
+            ],
+            overrides: vec![],
+        }];
+
+        let aggs = compute_aggregates(&scheme, &run).expect("聚合失败");
+        assert_eq!(aggs["请假超总天数"]["张"], Value::Num(2.0));
+        assert_eq!(aggs["请假超额"]["张"], Value::Bool(true));
+
+        let fields =
+            compute_group_fields_for(&scheme, &run, &aggs, "fxp", "张").expect("字段求值失败");
+        assert_eq!(fields["课时S"], Value::Num(20.0));
+        assert_eq!(fields["课时费"], Value::Num(30.0));
+        assert_eq!(fields["发放"], Value::Num(0.0));
     }
 }
