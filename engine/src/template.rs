@@ -16,8 +16,8 @@ use crate::xmlpatch;
 #[derive(Debug, Clone)]
 pub struct SheetEdit {
     pub sheet: String,
-    /// (单元格引用, 值文本)，如 ("E5","111.5")。
-    pub cells: Vec<(String, String)>,
+    /// (单元格引用, 值文本)。值文本 None = 清空该单元格（移除值、保留样式/坐标）。
+    pub cells: Vec<(String, Option<String>)>,
 }
 
 fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {

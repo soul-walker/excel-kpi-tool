@@ -176,6 +176,9 @@ pub struct ColumnSpec {
     /// 该列取值前的归一化。
     #[serde(default)]
     pub normalize: Vec<String>,
+    /// 数值读取位宽（如 32 表示读到 float32 精度，复刻旧代码 ParseFloat(s,32)）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bits: Option<u32>,
 }
 
 /// 列值类型。

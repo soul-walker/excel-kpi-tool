@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         edits.push(SheetEdit {
             sheet: sheet.to_string(),
             cells: vec![
-                (cell_ref(*row, col_ksf), v_ksf.clone()),
-                (cell_ref(*row, col_sjff), v_sjff.clone()),
+                (cell_ref(*row, col_ksf), Some(v_ksf.clone())),
+                (cell_ref(*row, col_sjff), Some(v_sjff.clone())),
             ],
         });
         expects.push((

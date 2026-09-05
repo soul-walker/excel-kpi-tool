@@ -249,7 +249,7 @@ pub fn read_source_table(path: &Path, src: &SourceSpec) -> Result<Table> {
         for c in &src.columns {
             let idx = col_alias[&c.alias];
             let data = range.get_value((r as u32, idx as u32));
-            let cell = to_cell(data, c.value_type)?;
+            let cell = to_cell(data, c.value_type, c.bits)?;
             any |= !cell.is_blank();
             cells.push(cell);
         }
@@ -290,9 +290,13 @@ pub fn read_source_table(path: &Path, src: &SourceSpec) -> Result<Table> {
     })
 }
 
-fn to_cell(data: Option<&Data>, ct: ColumnType) -> Result<CellValue> {
+fn to_cell(data: Option<&Data>, ct: ColumnType, bits: Option<u32>) -> Result<CellValue> {
     let Some(d) = data else {
         return Ok(CellValue::Blank);
+    };
+    let round = |v: f64| match bits {
+        Some(32) => v as f32 as f64,
+        _ => v,
     };
     let text = |s: &str| {
         if s.trim().is_empty() {
@@ -311,17 +315,18 @@ fn to_cell(data: Option<&Data>, ct: ColumnType) -> Result<CellValue> {
         (Data::String(s), ColumnType::Decimal) => s
             .trim()
             .parse::<f64>()
+            .map(round)
             .map(CellValue::Float)
             .map_err(|_| Error::Runtime(format!("小数解析失败: {s:?}"))),
         (Data::String(s), _) => Ok(text(s)),
         (Data::Int(i), ColumnType::Text) => Ok(CellValue::Text(i.to_string())),
-        (Data::Int(i), ColumnType::Decimal) => Ok(CellValue::Float(*i as f64)),
+        (Data::Int(i), ColumnType::Decimal) => Ok(CellValue::Float(round(*i as f64))),
         (Data::Int(i), _) => Ok(CellValue::Integer(*i)),
         (Data::Float(f), ColumnType::Integer) if f.fract() == 0.0 => {
             Ok(CellValue::Integer(*f as i64))
         }
         (Data::Float(f), ColumnType::Text) => Ok(CellValue::Text(f.to_string())),
-        (Data::Float(f), _) => Ok(CellValue::Float(*f)),
+        (Data::Float(f), _) => Ok(CellValue::Float(round(*f))),
         (Data::Bool(b), ColumnType::Boolean) => Ok(CellValue::Boolean(*b)),
         (Data::Bool(b), _) => Ok(CellValue::Text(b.to_string())),
         (Data::DateTime(dt), _) => Ok(CellValue::Text(dt.to_string())),
@@ -351,6 +356,7 @@ mod tests {
                     key: true,
                     required: true,
                     normalize: vec![],
+                    bits: None,
                 },
                 ColumnSpec {
                     header: Some("总计".into()),
@@ -360,6 +366,7 @@ mod tests {
                     key: false,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
             ],
         }

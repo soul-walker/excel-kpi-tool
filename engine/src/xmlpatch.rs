@@ -6,18 +6,23 @@
 //! 数值按文本写入（整数/浮点 to_string）。
 
 /// 把 `writes`（单元格引用 → 值文本）应用到 worksheet XML 文本上。
-pub fn patch_cells(xml: &str, writes: &[(String, String)]) -> String {
+/// `None` 表示清空该单元格（移除值、保留样式/位置）。
+pub fn patch_cells(xml: &str, writes: &[(String, Option<String>)]) -> String {
     let mut out = xml.to_string();
     for (r#ref, value) in writes {
-        out = patch_one(&out, r#ref, value);
+        out = patch_one(&out, r#ref, value.as_deref());
     }
     out
 }
 
-fn patch_one(xml: &str, cell_ref: &str, value: &str) -> String {
+fn patch_one(xml: &str, cell_ref: &str, value: Option<&str>) -> String {
     let marker = format!("<c r=\"{cell_ref}\"");
     let Some(open) = xml.find(&marker) else {
-        return insert_new_cell(xml, cell_ref, value);
+        return match value {
+            Some(v) => insert_new_cell(xml, cell_ref, v),
+            // 单元格不存在时无需"清空"。
+            None => xml.to_string(),
+        };
     };
 
     // 定位该 <c ...> 的结束 '>'。
@@ -26,6 +31,23 @@ fn patch_one(xml: &str, cell_ref: &str, value: &str) -> String {
     };
     let tag_end = open + rel_end;
     let tag = &xml[open..tag_end];
+
+    // 清空：把 <c ...>内容</c> 压成 <c .../>（保留样式）。
+    let Some(value) = value else {
+        if tag.ends_with('/') {
+            return xml.to_string(); // 已空
+        }
+        let body_start = tag_end + 1;
+        let Some(rel_close) = xml[body_start..].find("</c>") else {
+            return xml.to_string();
+        };
+        let body_end = body_start + rel_close;
+        let mut s = String::with_capacity(xml.len());
+        s.push_str(&xml[..tag_end]);
+        s.push_str("/>");
+        s.push_str(&xml[body_end + "</c>".len()..]);
+        return s;
+    };
 
     if tag.ends_with('/') {
         // <c r="E5" s="23"/> → <c r="E5" s="23"><v>value</v></c>
@@ -99,7 +121,7 @@ mod tests {
     fn replaces_existing_value() {
         let xml =
             "<row r=\"1\"><c r=\"A1\" s=\"1\"><v>1</v></c><c r=\"B1\" s=\"2\"><v>2</v></c></row>";
-        let out = patch_cells(xml, &[("A1".into(), "99".into())]);
+        let out = patch_cells(xml, &[("A1".into(), Some("99".into()))]);
         assert!(
             out.contains("<c r=\"A1\" s=\"1\"><v>99</v></c>"),
             "got: {out}"
@@ -110,7 +132,7 @@ mod tests {
     #[test]
     fn fills_empty_cell_self_closing() {
         let xml = "<row r=\"3\"><c r=\"C3\" s=\"9\"/><c r=\"D3\"/></row>";
-        let out = patch_cells(xml, &[("C3".into(), "1.5".into())]);
+        let out = patch_cells(xml, &[("C3".into(), Some("1.5".into()))]);
         assert!(
             out.contains("<c r=\"C3\" s=\"9\"><v>1.5</v></c>"),
             "got: {out}"
@@ -120,7 +142,7 @@ mod tests {
     #[test]
     fn fills_empty_cell_open_close() {
         let xml = "<row r=\"3\"><c r=\"C3\" s=\"9\"></c></row>";
-        let out = patch_cells(xml, &[("C3".into(), "1.5".into())]);
+        let out = patch_cells(xml, &[("C3".into(), Some("1.5".into()))]);
         assert!(
             out.contains("<c r=\"C3\" s=\"9\"><v>1.5</v></c>"),
             "got: {out}"
@@ -128,9 +150,17 @@ mod tests {
     }
 
     #[test]
+    fn clears_existing_value() {
+        let xml = "<row r=\"1\"><c r=\"A1\" s=\"3\"><v>13.68</v></c></row>";
+        let out = patch_cells(xml, &[("A1".into(), None)]);
+        assert!(out.contains("<c r=\"A1\" s=\"3\"/>"), "got: {out}");
+        assert!(!out.contains("<v>"), "值应被清除: {out}");
+    }
+
+    #[test]
     fn inserts_new_cell_into_row() {
         let xml = "<sheetData><row r=\"5\"><c r=\"A5\"><v>1</v></c></row></sheetData>";
-        let out = patch_cells(xml, &[("E5".into(), "42".into())]);
+        let out = patch_cells(xml, &[("E5".into(), Some("42".into()))]);
         assert!(out.contains("<c r=\"E5\"><v>42</v></c>"), "got: {out}");
         assert!(out.contains("<c r=\"A5\"><v>1</v></c>"));
     }

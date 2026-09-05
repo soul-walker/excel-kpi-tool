@@ -39,7 +39,8 @@ fn is_ident_start(c: char) -> bool {
     c.is_alphabetic() || c == '_'
 }
 fn is_ident_part(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+    // 中文字段名可能含顿号（未参加升旗、集会）与百分号（上浮30%）
+    c.is_alphanumeric() || c == '_' || c == '、' || c == '%'
 }
 
 fn lex(src: &str) -> Result<Vec<Tok>, String> {
@@ -151,6 +152,8 @@ pub enum Node {
     Num(f64),
     Str(String),
     Bool(bool),
+    /// 空字面量（`空`/`null`/`empty`），求值得 `Value::Empty`。
+    Empty,
     /// 点分路径，如 `参数.课时费`、`课时.课时`、`请假超额`。
     Path(Vec<String>),
     If {
@@ -381,6 +384,12 @@ impl Parser {
                 if first.eq_ignore_ascii_case("false") {
                     return Ok(Node::Bool(false));
                 }
+                if first == "空"
+                    || first.eq_ignore_ascii_case("null")
+                    || first.eq_ignore_ascii_case("empty")
+                {
+                    return Ok(Node::Empty);
+                }
                 // 点分路径：a.b.c
                 let mut parts = vec![first];
                 while self.peek() == &Tok::Dot {
@@ -406,6 +415,14 @@ impl Parser {
                             cond: Box::new(cond),
                             then: Box::new(then),
                             els: Box::new(els),
+                        });
+                    }
+                    // 零参函数，如 LEAVE_PENALTY()
+                    if self.peek() == &Tok::RParen {
+                        self.next();
+                        return Ok(Node::Call {
+                            name,
+                            args: Vec::new(),
                         });
                     }
                     let agg_like = ["sum", "count", "avg", "min", "max"];
@@ -485,22 +502,31 @@ impl fmt::Display for Value {
 /// 求值回调：把点分路径解析为值；返回 None 表示"未知/缺失"。
 pub type Lookup<'a> = &'a dyn Fn(&[String]) -> Option<Value>;
 
+/// 额外函数回调：名称 + 已求值实参 → 结果。返回 Ok(None) 表示不认识该函数。
+/// 用于 exec 等上层注入"按人统计"的领域函数（如 LEAVE_DEDUCT/LEAVE_PENALTY/DISCOUNT）。
+pub type ExtraFunc<'a> = Option<&'a dyn Fn(&str, &[Value]) -> Result<Option<Value>, String>>;
+
 /// 行：聚合求值用（列 alias -> 值）。
 pub type Row = std::collections::HashMap<String, Value>;
 
 /// 无行上下文求值（字段/参数表达式）。
 pub fn eval(node: &Node, lookup: Lookup) -> Result<Value, String> {
-    eval_core(node, lookup, None, None)
+    eval_core(node, lookup, None, None, None)
+}
+
+/// 带额外函数库的无行上下文求值（exec 注入领域函数）。
+pub fn eval_with(node: &Node, lookup: Lookup, extra: ExtraFunc<'_>) -> Result<Value, String> {
+    eval_core(node, lookup, None, None, extra)
 }
 
 /// 带行集合求值：其中 `SUM(expr WHERE cond)` 等聚合会在这些行上求值。
 pub fn eval_rows(node: &Node, lookup: Lookup, rows: &[Row]) -> Result<Value, String> {
-    eval_core(node, lookup, Some(rows), None)
+    eval_core(node, lookup, Some(rows), None, None)
 }
 
 /// 在单行作用域内求值：顶层标识符优先解析为该行的列（行过滤/行字段）。
 pub fn eval_on_row(node: &Node, lookup: Lookup, row: &Row) -> Result<Value, String> {
-    eval_core(node, lookup, None, Some(row))
+    eval_core(node, lookup, None, Some(row), None)
 }
 
 fn resolve_path(lookup: Lookup, row: Option<&Row>, p: &[String]) -> Value {
@@ -518,39 +544,53 @@ fn eval_core(
     lookup: Lookup,
     rows: Option<&[Row]>,
     row: Option<&Row>,
+    extra: ExtraFunc<'_>,
 ) -> Result<Value, String> {
     match node {
         Node::Num(v) => Ok(Value::Num(*v)),
         Node::Str(s) => Ok(Value::Str(s.clone())),
         Node::Bool(b) => Ok(Value::Bool(*b)),
+        Node::Empty => Ok(Value::Empty),
         Node::Path(p) => Ok(resolve_path(lookup, row, p)),
-        Node::Not(x) => Ok(Value::Bool(!as_bool(&eval_core(x, lookup, rows, row)?)?)),
+        Node::Not(x) => Ok(Value::Bool(!as_bool(&eval_core(
+            x, lookup, rows, row, extra,
+        )?)?)),
         Node::Coalesce { l, r } => {
-            let lv = eval_core(l, lookup, rows, row)?;
+            let lv = eval_core(l, lookup, rows, row, extra)?;
             if lv != Value::Empty {
                 Ok(lv)
             } else {
-                eval_core(r, lookup, rows, row)
+                eval_core(r, lookup, rows, row, extra)
             }
         }
         Node::If { cond, then, els } => {
-            if as_bool(&eval_core(cond, lookup, rows, row)?)? {
-                eval_core(then, lookup, rows, row)
+            if as_bool(&eval_core(cond, lookup, rows, row, extra)?)? {
+                eval_core(then, lookup, rows, row, extra)
             } else {
-                eval_core(els, lookup, rows, row)
+                eval_core(els, lookup, rows, row, extra)
             }
         }
         Node::Bin { op, l, r } => {
-            let lv = eval_core(l, lookup, rows, row)?;
-            let rv = eval_core(r, lookup, rows, row)?;
+            let lv = eval_core(l, lookup, rows, row, extra)?;
+            let rv = eval_core(r, lookup, rows, row, extra)?;
             eval_bin(*op, &lv, &rv)
         }
         Node::Call { name, args } => {
             let mut vals = Vec::with_capacity(args.len());
             for a in args {
-                vals.push(eval_core(a, lookup, rows, row)?);
+                vals.push(eval_core(a, lookup, rows, row, extra)?);
             }
-            eval_call(name, &vals)
+            let lc = name.to_lowercase();
+            let plain = ["min", "max", "round", "abs"];
+            if plain.iter().any(|k| *k == lc) {
+                eval_call(name, &vals)
+            } else if let Some(f) = extra
+                && let Some(v) = f(name, &vals)?
+            {
+                Ok(v)
+            } else {
+                eval_call(name, &vals)
+            }
         }
         Node::Agg { op, expr, cond } => {
             let list = rows.ok_or_else(|| "聚合表达式缺少行集合上下文".to_string())?;
@@ -558,7 +598,7 @@ fn eval_core(
             let mut count = 0usize;
             for r in list {
                 let include = match cond {
-                    Some(c) => as_bool(&eval_core(c, lookup, None, Some(r))?)?,
+                    Some(c) => as_bool(&eval_core(c, lookup, None, Some(r), extra)?)?,
                     None => true,
                 };
                 if !include {
@@ -566,7 +606,7 @@ fn eval_core(
                 }
                 count += 1;
                 if op != "count" {
-                    let v = eval_core(expr, lookup, None, Some(r))?;
+                    let v = eval_core(expr, lookup, None, Some(r), extra)?;
                     nums.push(to_num(&v)?);
                 }
             }
@@ -710,6 +750,15 @@ mod tests {
     fn coalesce_and_missing_path() {
         assert_eq!(ev("课时.课时 ?? 0"), Value::Num(0.0));
         assert_eq!(ev("IF(true, 1, 2) ?? 9"), Value::Num(1.0));
+    }
+
+    #[test]
+    fn empty_literal() {
+        assert_eq!(ev("空"), Value::Empty);
+        assert_eq!(ev("null"), Value::Empty);
+        assert_eq!(ev("IF(false, 1, 空)"), Value::Empty);
+        // 算术中 空 按 0 处理
+        assert_eq!(ev("空 + 5"), Value::Num(5.0));
     }
 
     #[test]

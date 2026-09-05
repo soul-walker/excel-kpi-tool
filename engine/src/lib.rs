@@ -18,7 +18,10 @@ pub mod xmlpatch;
 
 pub use calc::{BinOp, Node, Row, Value, eval, eval_on_row, eval_rows, parse};
 pub use error::{Error, Result};
-pub use exec::{DerivedTable, SchemeRun, compute_derived, resolve_file, run_scheme, table_to_rows};
+pub use exec::{
+    DerivedTable, SchemeRun, compute_aggregates, compute_derived, compute_group_fields_for,
+    effective_fields, param_lookup, plan_template_patch, resolve_file, run_scheme, table_to_rows,
+};
 pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_key};
 pub use scheme::{
     AggregateSpec, ApplyMode, BlankBehavior, ColumnSpec, ColumnType, DerivedSpec, DuplicatePolicy,

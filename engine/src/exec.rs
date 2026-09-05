@@ -7,11 +7,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use calamine::Reader as _;
+
 use crate::calc::{self, Node, Row as CalcRow, Value};
 use crate::error::{Error, Result};
-use crate::reader::read_source_table;
-use crate::scheme::{DerivedSpec, Scheme};
+use crate::reader::{cell_ref, normalize_key, read_source_table};
+use crate::scheme::{DerivedSpec, OutputKind, Scheme};
 use crate::table::{CellValue, Table};
+use crate::template::SheetEdit;
 
 /// 一次运行的中间产物。
 pub struct SchemeRun {
@@ -256,7 +259,10 @@ pub fn compute_aggregates(
         let mut by_person: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
         for r in rows {
             if let Some(v) = key_value(&r, &agg.group_by) {
-                by_person.entry(value_key(v)).or_default().push(r);
+                by_person
+                    .entry(normalize_key(&value_key(v)))
+                    .or_default()
+                    .push(r);
             }
         }
         let node = calc::parse(&agg.expr)
@@ -343,32 +349,40 @@ pub fn compute_group_fields_for(
     let details = detail_ids(scheme);
     let mut computed: BTreeMap<String, Value> = BTreeMap::new();
 
+    // 领域函数（按人统计）：扣课时/请假/折扣等旧语义的 1:1 复刻。
+    let extra = |name: &str, args: &[Value]| Ok(special_value(name, args, scheme, run, person));
+
     for (name, expr_text) in fields {
         let Some(text) = expr_text else {
             continue;
         };
         let node =
             calc::parse(&text).map_err(|e| Error::Runtime(format!("字段 {name} 解析失败: {e}")))?;
-        let value = calc::eval(&node, &|p| {
-            if let [single] = p {
-                if let Some(v) = computed.get(single) {
-                    return Some(v.clone());
+        let value = calc::eval_with(
+            &node,
+            &|p| {
+                if let [single] = p {
+                    if let Some(v) = computed.get(single) {
+                        return Some(v.clone());
+                    }
+                    if let Some(by_person) = aggs.get(single) {
+                        let want = normalize_key(person);
+                        if let Some(v) = by_person.get(&want).or_else(|| by_person.get(person)) {
+                            return Some(v.clone());
+                        }
+                    }
+                    return params.get(single).cloned();
                 }
-                if let Some(by_person) = aggs.get(single)
-                    && let Some(v) = by_person.get(person)
-                {
-                    return Some(v.clone());
+                if p.len() == 2 && p[0] == "参数" {
+                    return params.get(&p[1]).cloned();
                 }
-                return params.get(single).cloned();
-            }
-            if p.len() == 2 && p[0] == "参数" {
-                return params.get(&p[1]).cloned();
-            }
-            if p.len() == 2 && !details.contains(&p[0]) {
-                return lookup_scalar(run, &p[0], &key, person, &p[1]);
-            }
-            None
-        })
+                if p.len() == 2 && !details.contains(&p[0]) {
+                    return lookup_scalar(run, &p[0], &key, person, &p[1]);
+                }
+                None
+            },
+            Some(&extra),
+        )
         .map_err(|e| Error::Runtime(format!("字段 {name} 求值失败: {e}")))?;
         computed.insert(name, value);
     }
@@ -387,9 +401,355 @@ fn lookup_scalar(
         (None, Some(d)) => d.rows.clone(),
         (None, None) => return None,
     };
+    let want = normalize_key(person);
     rows.into_iter()
-        .find(|r| key_value(r, key_col).map(value_key).as_deref() == Some(person))
+        .find(|r| {
+            key_value(r, key_col)
+                .map(|v| normalize_key(&value_key(v)))
+                .as_deref()
+                == Some(want.as_str())
+        })
         .and_then(|r| r.get(col).cloned())
+}
+
+// ---- 绩效复刻的"按人统计"领域函数（LEAVE_DEDUCT / LEAVE_PENALTY / DISCOUNT）----
+// 旧逻辑见 school-kpi collect/collect.go 的 CalKks / CalQj / CalZk。
+// 这些函数以"请假明细表"（scheme.aggregates[0].from）逐人重建请假记录来求值，
+// 属于 legacy 1:1 语义（R3 疑点仍按旧行为复刻）。
+
+/// 一条请假记录（主记录 + 其下若干替课行）。
+struct LeaveRecord {
+    jia_type: Option<String>,
+    days: f64,
+    has_sub: bool,
+}
+
+fn leave_table_id(scheme: &Scheme) -> Option<String> {
+    scheme.aggregates.first().map(|a| a.from.clone())
+}
+
+fn val_num(v: &Value) -> f64 {
+    match v {
+        Value::Num(n) => *n,
+        Value::Bool(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        Value::Str(s) => s.trim().parse().unwrap_or(0.0),
+        Value::Empty => 0.0,
+    }
+}
+
+fn val_bool(v: &Value) -> bool {
+    match v {
+        Value::Bool(b) => *b,
+        Value::Num(n) => *n != 0.0,
+        Value::Str(s) => !s.is_empty(),
+        Value::Empty => false,
+    }
+}
+
+fn row_has_sub(r: &CalcRow) -> bool {
+    matches!(
+        r.get("替上课老师"),
+        Some(Value::Str(s)) if !s.trim().is_empty()
+    )
+}
+
+/// 重建某人的请假记录（按"天数"列断行，替课行续到前一条记录）。
+fn person_leave_records(scheme: &Scheme, run: &SchemeRun, person: &str) -> Vec<LeaveRecord> {
+    let Some(id) = leave_table_id(scheme) else {
+        return Vec::new();
+    };
+    let rows: Vec<CalcRow> = match (run.source_tables.get(&id), run.derived_tables.get(&id)) {
+        (Some(t), _) => table_to_rows(t),
+        (None, Some(d)) => d.rows.clone(),
+        (None, None) => Vec::new(),
+    };
+    let key = scheme.entity.key_field.clone();
+    let mut out: Vec<LeaveRecord> = Vec::new();
+    let mut cur: Option<LeaveRecord> = None;
+    let want = normalize_key(person);
+    for r in rows {
+        let k = key_value(&r, &key)
+            .map(|v| normalize_key(&value_key(v)))
+            .unwrap_or_default();
+        if k != want {
+            continue;
+        }
+        let days = match r.get("天数") {
+            Some(Value::Num(n)) => Some(*n),
+            _ => None,
+        };
+        match days {
+            Some(d) => {
+                if let Some(prev) = cur.take() {
+                    out.push(prev);
+                }
+                let jia_type = match r.get("类型") {
+                    Some(Value::Str(s)) => Some(s.clone()),
+                    _ => None,
+                };
+                cur = Some(LeaveRecord {
+                    jia_type,
+                    days: d,
+                    has_sub: row_has_sub(&r),
+                });
+            }
+            None => {
+                if let Some(rec) = cur.as_mut()
+                    && row_has_sub(&r)
+                {
+                    rec.has_sub = true;
+                }
+            }
+        }
+    }
+    if let Some(rec) = cur {
+        out.push(rec);
+    }
+    out
+}
+
+/// LEAVE_DEDUCT(课时周费)：扣课时 = -(Σ 有替课且类型∉{婚,公,丧,产} 的记录天数 × 周费/5)。
+/// 无请假/结果 0 时返回 空（旧代码 ok=false → 留空）。
+fn leave_deduct_value(scheme: &Scheme, run: &SchemeRun, person: &str, kszf: f64) -> Value {
+    let records = person_leave_records(scheme, run, person);
+    if records.is_empty() {
+        return Value::Empty;
+    }
+    let excluded = ["婚", "公", "丧", "产"];
+    let per_day = kszf / 5.0;
+    let mut total = 0.0f64;
+    for r in &records {
+        if !r.has_sub {
+            continue;
+        }
+        match r.jia_type.as_deref() {
+            Some(t) if !excluded.contains(&t) => total += per_day * r.days,
+            _ => {}
+        }
+    }
+    if total == 0.0 {
+        Value::Empty
+    } else {
+        Value::Num(-total)
+    }
+}
+
+/// LEAVE_PENALTY()：请假扣款 = -MIN(100, 事假天数×单价 + 病假天数×单价)；0 → 空。
+fn leave_penalty_value(scheme: &Scheme, run: &SchemeRun, person: &str) -> Value {
+    let records = person_leave_records(scheme, run, person);
+    let params = param_lookup(scheme);
+    let shijia = val_num(params.get("事假单价").unwrap_or(&Value::Num(0.0)));
+    let bingjia = val_num(params.get("病假单价").unwrap_or(&Value::Num(0.0)));
+    let mut money = 0.0f64;
+    for r in &records {
+        match r.jia_type.as_deref() {
+            Some("事") => money += r.days * shijia,
+            Some("病") => money += r.days * bingjia,
+            _ => {}
+        }
+    }
+    if money == 0.0 {
+        Value::Empty
+    } else {
+        Value::Num(-money.min(100.0))
+    }
+}
+
+/// DISCOUNT(教研组长, 年级组长, 行政后勤, 班主任, 课时月费)。
+/// 按旧 CalZk 复刻：职位 >0 数量 ≥2 时取"最后一个非零值"×折扣；否则仅当参数开启时
+/// MIN(课时月费, 行政后勤)×折扣，默认 0。
+fn discount_value(args: &[Value], scheme: &Scheme) -> Value {
+    if args.len() < 5 {
+        return Value::Num(0.0);
+    }
+    let ms = [
+        val_num(&args[0]),
+        val_num(&args[1]),
+        val_num(&args[2]),
+        val_num(&args[3]),
+    ];
+    let ksyf = val_num(&args[4]);
+    let params = param_lookup(scheme);
+    let zk = val_num(params.get("折扣").unwrap_or(&Value::Num(0.0)));
+    let enable = val_bool(
+        params
+            .get("是否对课时月费进行折扣")
+            .unwrap_or(&Value::Bool(false)),
+    );
+    let count = ms.iter().filter(|&&v| v > 0.0).count();
+    let v = if count >= 2 {
+        // 旧 min() 的"取最后一个非零值"（R3 疑点，按旧行为复刻）。
+        let last = ms
+            .iter()
+            .fold(0.0f64, |acc, &v| if v != 0.0 { v } else { acc });
+        last * zk
+    } else if enable {
+        ksyf.min(ms[2]) * zk
+    } else {
+        0.0
+    };
+    Value::Num(v)
+}
+
+/// 领域函数分发（不认识返回 None，走默认"未知函数"报错）。
+fn special_value(
+    name: &str,
+    args: &[Value],
+    scheme: &Scheme,
+    run: &SchemeRun,
+    person: &str,
+) -> Option<Value> {
+    let up = name.to_uppercase();
+    match up.as_str() {
+        "LEAVE_DEDUCT" if !args.is_empty() => {
+            Some(leave_deduct_value(scheme, run, person, val_num(&args[0])))
+        }
+        "LEAVE_PENALTY" => Some(leave_penalty_value(scheme, run, person)),
+        "DISCOUNT" => Some(discount_value(args, scheme)),
+        _ => None,
+    }
+}
+
+// ---- 模板回写规划（patch_template 输出 → SheetEdit）----
+
+fn cell_as_text(d: &calamine::Data) -> Option<String> {
+    use calamine::Data;
+    match d {
+        Data::String(s) => Some(s.clone()),
+        Data::Int(i) => Some(i.to_string()),
+        Data::Float(f) => Some(f.to_string()),
+        Data::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// 规划某个 patch_template 输出的写入单元格。
+///
+/// - 按每个 (group → sheet) 用输出列表定位模板表头行与人员行；
+/// - 每个输出列：字段值为 Num → 写数值；为 空 → 清空该单元格（旧代码写空字符串）；
+/// - 模板中不存在的表头列（如 校聘 sheet 缺"上浮30%"）自动跳过。
+#[allow(clippy::too_many_arguments)]
+pub fn plan_template_patch(
+    scheme: &Scheme,
+    run: &SchemeRun,
+    aggs: &BTreeMap<String, BTreeMap<String, Value>>,
+    output_id: &str,
+    month_dir: &Path,
+) -> Result<Vec<SheetEdit>> {
+    let out = scheme
+        .outputs
+        .iter()
+        .find(|o| o.id == output_id)
+        .ok_or_else(|| Error::Runtime(format!("找不到输出 {output_id}")))?;
+    let p = match &out.kind {
+        OutputKind::PatchTemplate(p) => p,
+        _ => {
+            return Err(Error::Runtime(format!(
+                "输出 {output_id} 不是 patch_template"
+            )));
+        }
+    };
+    let path = resolve_file(&p.file, month_dir);
+    if !path.exists() {
+        return Err(Error::Runtime(format!("模板不存在: {path:?}")));
+    }
+    let key_header = p.row_key.as_deref().unwrap_or(&scheme.entity.key_field);
+
+    let mut wb = calamine::open_workbook_auto(&path)
+        .map_err(|e| Error::Runtime(format!("打开 {path:?} 失败: {e}")))?;
+    let norm_cols: BTreeSet<String> = p.columns.iter().map(|c| normalize_key(&c.header)).collect();
+
+    let mut edits = Vec::new();
+    for g in &p.groups {
+        if !wb.sheet_names().iter().any(|n| n == &g.sheet) {
+            return Err(Error::Runtime(format!("sheet 不存在: {}", g.sheet)));
+        }
+        let range = wb
+            .worksheet_range(&g.sheet)
+            .map_err(|e| Error::Runtime(format!("读取 sheet {} 失败: {e}", g.sheet)))?;
+        let (nrows, ncols) = range.get_size();
+
+        // 找表头行：含 key 表头且命中 ≥3 个输出表头的最靠前行。
+        let mut header_row: Option<u32> = None;
+        for r in 0..nrows.min(20) {
+            let has_key = (0..ncols).any(|c| {
+                range
+                    .get_value((r as u32, c as u32))
+                    .and_then(cell_as_text)
+                    .map(|t| normalize_key(&t) == normalize_key(key_header))
+                    .unwrap_or(false)
+            });
+            if !has_key {
+                continue;
+            }
+            let hits = (0..ncols)
+                .filter_map(|c| range.get_value((r as u32, c as u32)).and_then(cell_as_text))
+                .filter(|t| norm_cols.contains(&normalize_key(t)))
+                .count();
+            if hits >= 3 {
+                header_row = Some(r as u32);
+                break;
+            }
+        }
+        let hr = header_row.ok_or_else(|| {
+            Error::Runtime(format!("sheet {} 未找到含 {key_header} 的表头行", g.sheet))
+        })?;
+
+        // 表头名(归一化) → 列号(1 起始)。
+        let mut col_of: HashMap<String, u32> = HashMap::new();
+        for c in 0..ncols {
+            if let Some(t) = range.get_value((hr, c as u32)).and_then(cell_as_text) {
+                col_of.insert(normalize_key(&t), c as u32 + 1);
+            }
+        }
+        let name_col = col_of
+            .get(&normalize_key(key_header))
+            .copied()
+            .ok_or_else(|| {
+                Error::Runtime(format!("sheet {} 缺 key 列表头 {key_header}", g.sheet))
+            })?;
+
+        let mut cells: Vec<(String, Option<String>)> = Vec::new();
+        for r in (hr as usize + 1)..nrows {
+            let Some(text) = range
+                .get_value((r as u32, (name_col - 1) as u32))
+                .and_then(cell_as_text)
+            else {
+                continue;
+            };
+            let person = normalize_key(&text);
+            if person.is_empty() {
+                continue;
+            }
+            let fields =
+                compute_group_fields_for(scheme, run, aggs, &g.group, &person).map_err(|e| {
+                    Error::Runtime(format!("计算 {person} @ {} 字段失败: {e}", g.sheet))
+                })?;
+            for col in &p.columns {
+                let Some(cnum) = col_of.get(&normalize_key(&col.header)) else {
+                    continue;
+                };
+                let write = match fields.get(&col.field) {
+                    Some(Value::Num(n)) => Some(format!("{n}")),
+                    _ => None,
+                };
+                cells.push((cell_ref(r as u32 + 1, *cnum), write));
+            }
+        }
+        if !cells.is_empty() {
+            edits.push(SheetEdit {
+                sheet: g.sheet.clone(),
+                cells,
+            });
+        }
+    }
+    Ok(edits)
 }
 
 #[cfg(test)]
@@ -418,6 +778,7 @@ mod tests {
                     key: true,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
                 ColumnSpec {
                     header: Some("类型".into()),
@@ -427,6 +788,7 @@ mod tests {
                     key: false,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
                 ColumnSpec {
                     header: Some("天数".into()),
@@ -436,6 +798,7 @@ mod tests {
                     key: false,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
                 ColumnSpec {
                     header: Some("替上课老师".into()),
@@ -445,6 +808,7 @@ mod tests {
                     key: false,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
                 ColumnSpec {
                     header: Some("节数".into()),
@@ -454,6 +818,7 @@ mod tests {
                     key: false,
                     required: false,
                     normalize: vec![],
+                    bits: None,
                 },
             ],
         }
@@ -691,5 +1056,98 @@ mod tests {
         assert_eq!(fields["课时S"], Value::Num(20.0));
         assert_eq!(fields["课时费"], Value::Num(30.0));
         assert_eq!(fields["发放"], Value::Num(0.0));
+    }
+
+    // ---- 绩效复刻整链：与 golden/kpi/绩效.xlsx 逐格对拍 ----
+
+    fn read_value_grid(path: &Path, sheet: &str) -> std::collections::BTreeMap<(u32, u32), String> {
+        use calamine::Data;
+        let mut wb = calamine::open_workbook_auto(path).expect("打开工作簿");
+        let range = wb.worksheet_range(sheet).expect("读取 sheet");
+        let (rows, cols) = range.get_size();
+        let mut m = std::collections::BTreeMap::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                let key = (r as u32, c as u32);
+                let v = match range.get_value(key) {
+                    Some(Data::Float(f)) => format!("n{f}"),
+                    Some(Data::Int(i)) => format!("n{i}.0"),
+                    Some(Data::String(s)) if !s.is_empty() => format!("s{s}"),
+                    // 空字符串单元格与缺失/空单元格等价
+                    Some(Data::String(_)) | Some(Data::Empty) | None => "e".into(),
+                    Some(Data::Bool(b)) => format!("b{b}"),
+                    _ => "e".into(),
+                };
+                m.insert(key, v);
+            }
+        }
+        m
+    }
+
+    fn grid_equal(a: &str, b: &str) -> bool {
+        match (a.strip_prefix('n'), b.strip_prefix('n')) {
+            (Some(x), Some(y)) => {
+                let x: f64 = x.parse().unwrap_or(f64::NAN);
+                let y: f64 = y.parse().unwrap_or(f64::NAN);
+                x == y
+            }
+            _ => a == b,
+        }
+    }
+
+    fn count_grid_diffs(path_a: &Path, path_b: &Path) -> usize {
+        let wb = calamine::open_workbook_auto(path_b).expect("打开基准");
+        let mut ndiff = 0usize;
+        for sheet in wb.sheet_names().iter() {
+            if sheet != "非校聘" && sheet != "校聘" {
+                continue;
+            }
+            let ma = read_value_grid(path_a, sheet);
+            let mb = read_value_grid(path_b, sheet);
+            let mut keys: Vec<(u32, u32)> = ma.keys().chain(mb.keys()).copied().collect();
+            keys.sort_unstable();
+            keys.dedup();
+            for k in keys {
+                let va = ma.get(&k).cloned().unwrap_or_else(|| "e".into());
+                let vb = mb.get(&k).cloned().unwrap_or_else(|| "e".into());
+                if !grid_equal(&va, &vb) {
+                    ndiff += 1;
+                }
+            }
+        }
+        ndiff
+    }
+
+    #[test]
+    fn kpi_replication_matches_golden() {
+        let scheme_path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../schemes/高中月绩效复刻.json"
+        ));
+        let raw = std::fs::read_to_string(scheme_path).expect("读复刻方案失败");
+        let v = crate::scheme::VersionedScheme::from_json_str(&raw).expect("复刻方案解析失败");
+        let scheme = v.scheme;
+
+        let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/2023-09"));
+        let run = run_scheme(&scheme, dir).expect("执行 sources/derived 失败");
+        let aggs = compute_aggregates(&scheme, &run).expect("聚合失败");
+        let edits = plan_template_patch(&scheme, &run, &aggs, "jx", dir).expect("回写规划失败");
+        assert!(
+            edits.iter().any(|e| !e.cells.is_empty()),
+            "应规划出非空编辑"
+        );
+
+        let golden = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../testdata/2023-09-golden/kpi/绩效.xlsx"
+        ));
+        let template = dir.join("绩效.xlsx");
+        let out_path =
+            std::env::temp_dir().join(format!("kpi-repl-test-{}.xlsx", std::process::id()));
+        crate::template::patch_workbook(&template, &out_path, &edits).expect("模板回写失败");
+
+        let diffs = count_grid_diffs(&out_path, golden);
+        let _ = std::fs::remove_file(&out_path);
+        assert_eq!(diffs, 0, "与 golden 仍有 {diffs} 个差异单元格");
     }
 }
