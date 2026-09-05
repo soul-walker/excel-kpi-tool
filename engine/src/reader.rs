@@ -298,22 +298,22 @@ fn to_cell(data: Option<&Data>, ct: ColumnType, bits: Option<u32>) -> Result<Cel
         Some(32) => v as f32 as f64,
         _ => v,
     };
+    // 文本默认去空白/换行/全角空格（对齐旧代码 HandleStringSpace），无需额外配置。
     let text = |s: &str| {
-        if s.trim().is_empty() {
+        let n = normalize_key(s);
+        if n.is_empty() {
             CellValue::Blank
         } else {
-            CellValue::Text(s.to_string())
+            CellValue::Text(n)
         }
     };
     match (d, ct) {
         (Data::String(s), ColumnType::Text) => Ok(text(s)),
-        (Data::String(s), ColumnType::Integer) => s
-            .trim()
+        (Data::String(s), ColumnType::Integer) => normalize_key(s)
             .parse::<i64>()
             .map(CellValue::Integer)
             .map_err(|_| Error::Runtime(format!("整数解析失败: {s:?}"))),
-        (Data::String(s), ColumnType::Decimal) => s
-            .trim()
+        (Data::String(s), ColumnType::Decimal) => normalize_key(s)
             .parse::<f64>()
             .map(round)
             .map(CellValue::Float)
@@ -355,7 +355,6 @@ mod tests {
                     value_type: ColumnType::Text,
                     key: true,
                     required: true,
-                    normalize: vec![],
                     bits: None,
                 },
                 ColumnSpec {
@@ -365,7 +364,6 @@ mod tests {
                     value_type: ColumnType::Decimal,
                     key: false,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
             ],

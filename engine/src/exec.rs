@@ -781,7 +781,6 @@ mod tests {
                     value_type: ColumnType::Text,
                     key: true,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
                 ColumnSpec {
@@ -791,7 +790,6 @@ mod tests {
                     value_type: ColumnType::Text,
                     key: false,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
                 ColumnSpec {
@@ -801,7 +799,6 @@ mod tests {
                     value_type: ColumnType::Decimal,
                     key: false,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
                 ColumnSpec {
@@ -811,7 +808,6 @@ mod tests {
                     value_type: ColumnType::Text,
                     key: false,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
                 ColumnSpec {
@@ -821,7 +817,6 @@ mod tests {
                     value_type: ColumnType::Integer,
                     key: false,
                     required: false,
-                    normalize: vec![],
                     bits: None,
                 },
             ],
