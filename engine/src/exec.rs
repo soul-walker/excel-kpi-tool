@@ -353,40 +353,33 @@ pub fn compute_group_fields_for(
     let details = detail_ids(scheme);
     let mut computed: BTreeMap<String, Value> = BTreeMap::new();
 
-    // 领域函数（按人统计）：扣课时/请假/折扣等旧语义的 1:1 复刻。
-    let extra = |name: &str, args: &[Value]| Ok(special_value(name, args, scheme, run, person));
-
     for (name, expr_text) in fields {
         let Some(text) = expr_text else {
             continue;
         };
         let node =
             calc::parse(&text).map_err(|e| Error::Runtime(format!("字段 {name} 解析失败: {e}")))?;
-        let value = calc::eval_with(
-            &node,
-            &|p| {
-                if let [single] = p {
-                    if let Some(v) = computed.get(single) {
+        let value = calc::eval(&node, &|p| {
+            if let [single] = p {
+                if let Some(v) = computed.get(single) {
+                    return Some(v.clone());
+                }
+                if let Some(by_person) = aggs.get(single) {
+                    let want = normalize_key(person);
+                    if let Some(v) = by_person.get(&want).or_else(|| by_person.get(person)) {
                         return Some(v.clone());
                     }
-                    if let Some(by_person) = aggs.get(single) {
-                        let want = normalize_key(person);
-                        if let Some(v) = by_person.get(&want).or_else(|| by_person.get(person)) {
-                            return Some(v.clone());
-                        }
-                    }
-                    return params.get(single).cloned();
                 }
-                if p.len() == 2 && p[0] == "参数" {
-                    return params.get(&p[1]).cloned();
-                }
-                if p.len() == 2 && !details.contains(&p[0]) {
-                    return lookup_scalar(run, &p[0], &key, person, &p[1]);
-                }
-                None
-            },
-            Some(&extra),
-        )
+                return params.get(single).cloned();
+            }
+            if p.len() == 2 && p[0] == "参数" {
+                return params.get(&p[1]).cloned();
+            }
+            if p.len() == 2 && !details.contains(&p[0]) {
+                return lookup_scalar(run, &p[0], &key, person, &p[1]);
+            }
+            None
+        })
         .map_err(|e| Error::Runtime(format!("字段 {name} 求值失败: {e}")))?;
         computed.insert(name, value);
     }
@@ -414,210 +407,6 @@ fn lookup_scalar(
                 == Some(want.as_str())
         })
         .and_then(|r| r.get(col).cloned())
-}
-
-// ---- 绩效复刻的"按人统计"领域函数（LEAVE_DEDUCT / LEAVE_PENALTY / DISCOUNT）----
-// 旧逻辑见 school-kpi collect/collect.go 的 CalKks / CalQj / CalZk。
-// 这些函数以"请假明细表"（scheme.aggregates[0].from）逐人重建请假记录来求值，
-// 属于 legacy 1:1 语义（R3 疑点仍按旧行为复刻）。
-
-/// 一条请假记录（主记录 + 其下若干替课行）。
-struct LeaveRecord {
-    jia_type: Option<String>,
-    days: f64,
-    has_sub: bool,
-}
-
-fn leave_table_id(scheme: &Scheme) -> Option<String> {
-    scheme.aggregates.first().map(|a| a.from.clone())
-}
-
-fn val_num(v: &Value) -> f64 {
-    match v {
-        Value::Num(n) => *n,
-        Value::Bool(b) => {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        Value::Str(s) => s.trim().parse().unwrap_or(0.0),
-        Value::Empty => 0.0,
-    }
-}
-
-fn val_bool(v: &Value) -> bool {
-    match v {
-        Value::Bool(b) => *b,
-        Value::Num(n) => *n != 0.0,
-        Value::Str(s) => !s.is_empty(),
-        Value::Empty => false,
-    }
-}
-
-fn row_has_sub(r: &CalcRow) -> bool {
-    matches!(
-        r.get("替上课老师"),
-        Some(Value::Str(s)) if !s.trim().is_empty()
-    )
-}
-
-/// 重建某人的请假记录（按"天数"列断行，替课行续到前一条记录）。
-fn person_leave_records(scheme: &Scheme, run: &SchemeRun, person: &str) -> Vec<LeaveRecord> {
-    let Some(id) = leave_table_id(scheme) else {
-        return Vec::new();
-    };
-    let rows: Vec<CalcRow> = match (run.source_tables.get(&id), run.derived_tables.get(&id)) {
-        (Some(t), _) => table_to_rows(t),
-        (None, Some(d)) => d.rows.clone(),
-        (None, None) => Vec::new(),
-    };
-    let key = scheme.entity.key_field.clone();
-    let mut out: Vec<LeaveRecord> = Vec::new();
-    let mut cur: Option<LeaveRecord> = None;
-    let want = normalize_key(person);
-    for r in rows {
-        let k = key_value(&r, &key)
-            .map(|v| normalize_key(&value_key(v)))
-            .unwrap_or_default();
-        if k != want {
-            continue;
-        }
-        let days = match r.get("天数") {
-            Some(Value::Num(n)) => Some(*n),
-            _ => None,
-        };
-        match days {
-            Some(d) => {
-                if let Some(prev) = cur.take() {
-                    out.push(prev);
-                }
-                let jia_type = match r.get("类型") {
-                    Some(Value::Str(s)) => Some(s.clone()),
-                    _ => None,
-                };
-                cur = Some(LeaveRecord {
-                    jia_type,
-                    days: d,
-                    has_sub: row_has_sub(&r),
-                });
-            }
-            None => {
-                if let Some(rec) = cur.as_mut()
-                    && row_has_sub(&r)
-                {
-                    rec.has_sub = true;
-                }
-            }
-        }
-    }
-    if let Some(rec) = cur {
-        out.push(rec);
-    }
-    out
-}
-
-/// LEAVE_DEDUCT(课时周费)：扣课时 = -(Σ 有替课且类型∉{婚,公,丧,产} 的记录天数 × 周费/5)。
-/// 无请假/结果 0 时返回 空（旧代码 ok=false → 留空）。
-fn leave_deduct_value(scheme: &Scheme, run: &SchemeRun, person: &str, kszf: f64) -> Value {
-    let records = person_leave_records(scheme, run, person);
-    if records.is_empty() {
-        return Value::Empty;
-    }
-    let excluded = ["婚", "公", "丧", "产"];
-    let per_day = kszf / 5.0;
-    let mut total = 0.0f64;
-    for r in &records {
-        if !r.has_sub {
-            continue;
-        }
-        match r.jia_type.as_deref() {
-            Some(t) if !excluded.contains(&t) => total += per_day * r.days,
-            _ => {}
-        }
-    }
-    if total == 0.0 {
-        Value::Empty
-    } else {
-        Value::Num(-total)
-    }
-}
-
-/// LEAVE_PENALTY()：请假扣款 = -MIN(100, 事假天数×单价 + 病假天数×单价)；0 → 空。
-fn leave_penalty_value(scheme: &Scheme, run: &SchemeRun, person: &str) -> Value {
-    let records = person_leave_records(scheme, run, person);
-    let params = param_lookup(scheme);
-    let shijia = val_num(params.get("事假单价").unwrap_or(&Value::Num(0.0)));
-    let bingjia = val_num(params.get("病假单价").unwrap_or(&Value::Num(0.0)));
-    let mut money = 0.0f64;
-    for r in &records {
-        match r.jia_type.as_deref() {
-            Some("事") => money += r.days * shijia,
-            Some("病") => money += r.days * bingjia,
-            _ => {}
-        }
-    }
-    if money == 0.0 {
-        Value::Empty
-    } else {
-        Value::Num(-money.min(100.0))
-    }
-}
-
-/// DISCOUNT(教研组长, 年级组长, 行政后勤, 班主任, 课时月费)。
-/// 按旧 CalZk 复刻：职位 >0 数量 ≥2 时取"最后一个非零值"×折扣；否则仅当参数开启时
-/// MIN(课时月费, 行政后勤)×折扣，默认 0。
-fn discount_value(args: &[Value], scheme: &Scheme) -> Value {
-    if args.len() < 5 {
-        return Value::Num(0.0);
-    }
-    let ms = [
-        val_num(&args[0]),
-        val_num(&args[1]),
-        val_num(&args[2]),
-        val_num(&args[3]),
-    ];
-    let ksyf = val_num(&args[4]);
-    let params = param_lookup(scheme);
-    let zk = val_num(params.get("折扣").unwrap_or(&Value::Num(0.0)));
-    let enable = val_bool(
-        params
-            .get("是否对课时月费进行折扣")
-            .unwrap_or(&Value::Bool(false)),
-    );
-    let count = ms.iter().filter(|&&v| v > 0.0).count();
-    let v = if count >= 2 {
-        // 旧 min() 的"取最后一个非零值"（R3 疑点，按旧行为复刻）。
-        let last = ms
-            .iter()
-            .fold(0.0f64, |acc, &v| if v != 0.0 { v } else { acc });
-        last * zk
-    } else if enable {
-        ksyf.min(ms[2]) * zk
-    } else {
-        0.0
-    };
-    Value::Num(v)
-}
-
-/// 领域函数分发（不认识返回 None，走默认"未知函数"报错）。
-fn special_value(
-    name: &str,
-    args: &[Value],
-    scheme: &Scheme,
-    run: &SchemeRun,
-    person: &str,
-) -> Option<Value> {
-    let up = name.to_uppercase();
-    match up.as_str() {
-        "LEAVE_DEDUCT" if !args.is_empty() => {
-            Some(leave_deduct_value(scheme, run, person, val_num(&args[0])))
-        }
-        "LEAVE_PENALTY" => Some(leave_penalty_value(scheme, run, person)),
-        "DISCOUNT" => Some(discount_value(args, scheme)),
-        _ => None,
-    }
 }
 
 // ---- 模板回写规划（patch_template 输出 → SheetEdit）----
@@ -771,7 +560,7 @@ mod tests {
             header_row: 1,
             parse: ParseSpec {
                 fill_down: vec!["姓名".into()],
-                continue_record_on: vec!["天数".into()],
+                continue_record_on: vec![],
             },
             columns: vec![
                 ColumnSpec {

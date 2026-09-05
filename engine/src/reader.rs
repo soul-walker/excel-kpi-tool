@@ -6,7 +6,7 @@
 //!   2) 每个期望表头在第几列？
 //!   3) key 列（如 姓名）的值落在第几行？
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use calamine::{Data, Reader, open_workbook_auto};
@@ -276,6 +276,40 @@ pub fn read_source_table(path: &Path, src: &SourceSpec) -> Result<Table> {
         }
     }
 
+    // —— 续主记录合并：`continue_record_on` 列全空的物理行并入上一条记录 ——
+    // 用于主从台账（如 请假替上课：一条请假=类型/天数 + 多条替课行）。
+    // 规则：新记录 = 续列均非空的行；续行的其余列并入上一条记录：
+    //   数值列求和、文本列以"、"追加（去重）、fill_down/续列本身保持主记录值。
+    if !src.parse.continue_record_on.is_empty() {
+        let cont_idx: BTreeSet<usize> = src
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| src.parse.continue_record_on.iter().any(|a| a == &c.alias))
+            .map(|(i, _)| i)
+            .collect();
+        let merge_skip: BTreeSet<usize> = src
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                src.parse.fill_down.iter().any(|a| a == &c.alias)
+                    || src.parse.continue_record_on.iter().any(|a| a == &c.alias)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let mut merged: Vec<TableRow> = Vec::with_capacity(out_rows.len());
+        for row in out_rows {
+            let is_lead = cont_idx.iter().all(|&i| !row.cells[i].is_blank());
+            if is_lead || merged.is_empty() {
+                merged.push(row);
+            } else if let Some(last) = merged.last_mut() {
+                merge_continuation(last, &row, &merge_skip);
+            }
+        }
+        out_rows = merged;
+    }
+
     let columns: Vec<Column> = src
         .columns
         .iter()
@@ -288,6 +322,41 @@ pub fn read_source_table(path: &Path, src: &SourceSpec) -> Result<Table> {
         columns,
         rows: out_rows,
     })
+}
+
+/// 把一条续行并入当前记录行：跳过 fill_down/续列；数值求和、文本以"、"追加去重。
+fn merge_continuation(last: &mut TableRow, extra: &TableRow, skip: &BTreeSet<usize>) {
+    for (i, cell) in extra.cells.iter().enumerate() {
+        if skip.contains(&i) || cell.is_blank() {
+            continue;
+        }
+        merge_cell(&mut last.cells[i], cell);
+    }
+}
+
+fn merge_cell(target: &mut CellValue, extra: &CellValue) {
+    if target.is_blank() {
+        *target = extra.clone();
+        return;
+    }
+    let next = match (&*target, extra) {
+        (CellValue::Integer(a), CellValue::Integer(b)) => CellValue::Integer(a + b),
+        (CellValue::Float(a), CellValue::Float(b)) => CellValue::Float(a + b),
+        (CellValue::Integer(a), CellValue::Float(b)) => CellValue::Float(*a as f64 + *b),
+        (CellValue::Float(a), CellValue::Integer(b)) => CellValue::Float(a + *b as f64),
+        (CellValue::Text(a), CellValue::Text(b)) => {
+            let mut s = a.clone();
+            if !s.contains(b.as_str()) {
+                if !s.is_empty() {
+                    s.push('、');
+                }
+                s.push_str(b);
+            }
+            CellValue::Text(s)
+        }
+        _ => return,
+    };
+    *target = next;
 }
 
 fn to_cell(data: Option<&Data>, ct: ColumnType, bits: Option<u32>) -> Result<CellValue> {

@@ -503,7 +503,7 @@ impl fmt::Display for Value {
 pub type Lookup<'a> = &'a dyn Fn(&[String]) -> Option<Value>;
 
 /// 额外函数回调：名称 + 已求值实参 → 结果。返回 Ok(None) 表示不认识该函数。
-/// 用于 exec 等上层注入"按人统计"的领域函数（如 LEAVE_DEDUCT/LEAVE_PENALTY/DISCOUNT）。
+/// 通用扩展点：供上层（GUI 插件 / 特殊场景）注入自定义函数；当前引擎内置实现不依赖它。
 pub type ExtraFunc<'a> = Option<&'a dyn Fn(&str, &[Value]) -> Result<Option<Value>, String>>;
 
 /// 行：聚合求值用（列 alias -> 值）。
@@ -514,7 +514,7 @@ pub fn eval(node: &Node, lookup: Lookup) -> Result<Value, String> {
     eval_core(node, lookup, None, None, None)
 }
 
-/// 带额外函数库的无行上下文求值（exec 注入领域函数）。
+/// 带额外函数库的无行上下文求值（通用扩展点，当前无内置调用方）。
 pub fn eval_with(node: &Node, lookup: Lookup, extra: ExtraFunc<'_>) -> Result<Value, String> {
     eval_core(node, lookup, None, None, extra)
 }

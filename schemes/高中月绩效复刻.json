@@ -2,7 +2,7 @@
   "schema_version": 1,
   "scheme": {
     "name": "高中月绩效复刻（对齐 golden）",
-    "description": "M1 复刻方案：把 school-kpi 旧代码的绩效计算 1:1 表达为方案（含疑似 bug，如折扣 min() 取最后一个非零）。字段名=输出表头名；源/派生 id 为英文。LEAVE_DEDUCT/LEAVE_PENALTY/DISCOUNT 为引擎内置特殊函数（exec 已实现，按请假明细记录重建旧 CalKks/CalQj/CalZk 语义）。课时/请假天数/早读小计列 bits=32 复刻旧代码 ParseFloat(s,32)。",
+    "description": "M1 复刻方案：把 school-kpi 旧代码的绩效计算 1:1 表达为方案（含疑似 bug，如折扣 min() 取最后一个非零）。字段名=输出表头名；源/派生 id 为英文。三条 R3 规则（婚丧产不扣、封顶 100、折扣取最后非零）已从引擎代码迁为方案表达式+参数（请假扣款上限/是否对课时月费进行折扣），默认对齐旧行为。课时/请假天数/早读小计列 bits=32 复刻旧代码 ParseFloat(s,32)。",
     "entity": { "key_field": "姓名", "duplicate": "report" },
     "parameters": [
       { "name": "考勤奖", "label": "考勤奖", "value_type": "integer", "value": 100 },
@@ -15,7 +15,9 @@
       { "name": "事假单价", "label": "事假单价", "value_type": "decimal", "value": 20 },
       { "name": "病假单价", "label": "病假单价", "value_type": "decimal", "value": 10 },
       { "name": "折扣", "label": "折扣", "value_type": "decimal", "value": 0.2 },
-      { "name": "请假超过天数", "label": "请假超过天数", "value_type": "integer", "value": 20 }
+      { "name": "请假超过天数", "label": "请假超过天数", "value_type": "integer", "value": 20 },
+      { "name": "请假扣款上限", "label": "请假扣款上限", "value_type": "integer", "value": 100 },
+      { "name": "是否对课时月费进行折扣", "label": "是否对课时月费进行折扣", "value_type": "boolean", "value": false }
     ],
     "sources": [
       {
@@ -49,6 +51,21 @@
       {
         "id": "qingjia",
         "label": "请假替上课",
+        "file": "{monthDir}/请假替上课.xlsx",
+        "sheet": "请假替上课",
+        "header_row": 1,
+        "parse": { "fill_down": ["姓名"] },
+        "columns": [
+          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+          { "header": "类型", "alias": "类型", "value_type": "text" },
+          { "header": "天数", "alias": "天数", "value_type": "decimal", "bits": 32 },
+          { "header": "替上课老师", "alias": "替上课老师", "value_type": "text" },
+          { "header": "节数", "alias": "节数", "value_type": "integer" }
+        ]
+      },
+      {
+        "id": "qingjia_jl",
+        "label": "请假记录（主从合并，按天断行）",
         "file": "{monthDir}/请假替上课.xlsx",
         "sheet": "请假替上课",
         "header_row": 1,
@@ -124,6 +141,18 @@
         "from": "qingjia",
         "group_by": "姓名",
         "expr": "请假超总天数 >= 参数.请假超过天数"
+      },
+      {
+        "id": "请假扣款金额",
+        "from": "qingjia",
+        "group_by": "姓名",
+        "expr": "SUM(天数 WHERE 类型 = '事') * 参数.事假单价 + SUM(天数 WHERE 类型 = '病') * 参数.病假单价"
+      },
+      {
+        "id": "扣课天数",
+        "from": "qingjia_jl",
+        "group_by": "姓名",
+        "expr": "SUM(天数 WHERE 类型 != '婚' AND 类型 != '公' AND 类型 != '丧' AND 类型 != '产' AND (替上课老师 ?? '') != '')"
       }
     ],
     "groups": [
@@ -144,13 +173,14 @@
           { "name": "年级组长", "expr": "IF(请假超额, 空, IF(gangwei.年级组长 ?? 0 > 0, gangwei.年级组长 ?? 0, 空))" },
           { "name": "行政后勤", "expr": "IF(请假超额, 空, IF(gangwei.行政后勤 ?? 0 > 0, gangwei.行政后勤 ?? 0, 空))" },
           { "name": "行、后", "expr": "IF(请假超额, 空, IF(gangwei.行后 ?? 0 > 0, gangwei.行后 ?? 0, 空))" },
-          { "name": "扣课时", "expr": "IF(请假超额, 空, LEAVE_DEDUCT(课时周费))" },
+          { "name": "扣课时", "expr": "IF(请假超额, 空, IF(扣课天数 > 0 AND 课时周费 > 0, -(扣课天数 * 课时周费 / 5), 空))" },
           { "name": "补课时", "expr": "IF(请假超额, 空, bukesh.费用)" },
-          { "name": "请假", "expr": "IF(请假超额, 空, LEAVE_PENALTY())" },
+          { "name": "请假", "expr": "IF(请假超额, 空, IF(请假扣款金额 > 0, -MIN(请假扣款金额, 参数.请假扣款上限), 空))" },
           { "name": "未参加升旗、集会", "expr": "IF(请假超额, 空, weicanjia.扣款)" },
           { "name": "早读", "expr": "IF(请假超额, 空, IF(zaodu.小计 ?? 0 > 0, zaodu.小计 ?? 0, 空))" },
           { "name": "班主任", "expr": "IF(请假超额, 空, IF(banzhuren.应发 ?? 0 > 0, banzhuren.应发 ?? 0, 空))" },
-          { "name": "折扣", "expr": "IF(DISCOUNT(教研组长, 年级组长, 行政后勤, 班主任, 课时月费) > 0, DISCOUNT(教研组长, 年级组长, 行政后勤, 班主任, 课时月费), 空)" },
+          { "name": "折扣额", "expr": "IF((教研组长 > 0) + (年级组长 > 0) + (行政后勤 > 0) + (班主任 > 0) >= 2, IF(班主任 > 0, 班主任, IF(行政后勤 > 0, 行政后勤, IF(年级组长 > 0, 年级组长, 教研组长))), IF(参数.是否对课时月费进行折扣, MIN(课时月费, 行政后勤 ?? 0), 0)) * 参数.折扣" },
+          { "name": "折扣", "expr": "IF(折扣额 > 0, 折扣额, 空)" },
           { "name": "合计1", "expr": "课时月费 + 考勤奖 + 岗位奖 + 扣课时 + 补课时 + 请假 + 未参加升旗、集会 + 早读 - 折扣" },
           { "name": "合计2", "expr": "(班主任 + 教研组长 + 年级组长 + 行政后勤 + 行、后) * 0.4" },
           { "name": "合计", "expr": "合计1 + 合计2" },
