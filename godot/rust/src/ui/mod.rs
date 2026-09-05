@@ -20,9 +20,9 @@ pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    BrowseMonthClicked, EditorLoadClicked, EditorSaveClicked, EditorSchemePicked,
-    EditorValidateClicked, MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage,
-    ValidateClicked,
+    BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
+    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked,
+    ParamRemoveClicked, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
@@ -42,7 +42,10 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<EditorSchemePicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorLoadClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorSaveClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<EditorValidateClicked>::default());
+            .add_plugins(GodotSignalsPlugin::<EditorValidateClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<EditorNewSchemeClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<EditorAddParamClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<ParamRemoveClicked>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<editor::EditorRefs>();
@@ -57,6 +60,7 @@ impl Plugin for UiPlugin {
             (
                 setup::resolve_ui_refs,
                 editor::resolve_editor,
+                editor::connect_remove_buttons,
                 devshot::dev_shot_system,
             ),
         );
@@ -69,6 +73,9 @@ impl Plugin for UiPlugin {
         app.add_observer(editor::on_scheme_picked);
         app.add_observer(editor::on_save_clicked);
         app.add_observer(editor::on_validate_clicked);
+        app.add_observer(editor::on_new_scheme_clicked);
+        app.add_observer(editor::on_add_param_clicked);
+        app.add_observer(editor::on_remove_param);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
     }

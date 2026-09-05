@@ -75,9 +75,31 @@ text = "Dry-run 预览"
 layout_mode = 2
 text = "实际运行（写回+.bak）"
 
-[node name="Log" type="RichTextLabel" parent="Margin/VBox"]
+[node name="Split" type="HSplitContainer" parent="Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
+split_offset = 620
+
+[node name="PreviewPanel" type="PanelContainer" parent="Margin/VBox/Split"]
+layout_mode = 2
+
+[node name="PreviewBox" type="VBoxContainer" parent="Margin/VBox/Split/PreviewPanel"]
+layout_mode = 2
+
+[node name="PreviewTitle" type="Label" parent="Margin/VBox/Split/PreviewPanel/PreviewBox"]
+layout_mode = 2
+text = "结果预览区"
+
+[node name="PreviewHint" type="Label" parent="Margin/VBox/Split/PreviewPanel/PreviewBox"]
+layout_mode = 2
+text = "（后续：dry-run 结果网格 / 问题清单）"
+modulate = Color(0.6, 0.6, 0.6, 1)
+
+[node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
+layout_mode = 2
+
+[node name="Log" type="RichTextLabel" parent="Margin/VBox/Split/LogPanel"]
+layout_mode = 2
 bbcode_enabled = true
 scroll_following = true
 

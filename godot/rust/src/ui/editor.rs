@@ -1,19 +1,22 @@
-//! 方案编辑器（v0：方案下拉 + 参数编辑/保存 + 校验）。
-//! 数据源/派生/聚合/计算组/输出等区块在后续迭代加入同一骨架。
+//! 方案编辑器（v0：新建方案 + 参数增删改/保存 + 校验）。
+//! 数据源/派生/聚合/计算组/输出等区块后续在同一骨架加入。
 
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::prelude::{Component, Query, Res, ResMut, Resource};
-use godot::classes::{HBoxContainer, Label, LineEdit, OptionButton, RichTextLabel, VBoxContainer};
+use godot::classes::{
+    Button, HBoxContainer, Label, LineEdit, OptionButton, RichTextLabel, VBoxContainer,
+};
 use godot::obj::NewAlloc;
 use godot::prelude::Gd;
-use godot_bevy::prelude::{GodotAccess, GodotNodeHandle, NodeTreeView};
+use godot_bevy::prelude::{GodotAccess, GodotNodeHandle, GodotSignals, NodeTreeView};
 use tracing::info;
 
 use crate::bridge;
 
 use super::events::{
-    EditorLoadClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
+    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
+    EditorSchemePicked, EditorValidateClicked, ParamRemoveClicked,
 };
 use super::schemes;
 
@@ -28,9 +31,9 @@ pub struct EditorNodes {
     pub scheme_select: GodotNodeHandle,
     #[node("Margin/VBox/MetaLabel")]
     pub meta_label: GodotNodeHandle,
-    #[node("Margin/VBox/ParamsScroll/ParamsBox")]
+    #[node("Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll/ParamsBox")]
     pub params_box: GodotNodeHandle,
-    #[node("Margin/VBox/Log")]
+    #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,
 }
 
@@ -40,7 +43,7 @@ pub struct EditorRefs {
     pub nodes: Option<EditorNodes>,
 }
 
-/// 编辑器文档状态（Send）：当前方案路径、原始 JSON、参数元信息。
+/// 编辑器文档状态（Send）。
 #[derive(Resource, Default)]
 pub struct EditorDoc {
     pub path: Option<String>,
@@ -49,15 +52,19 @@ pub struct EditorDoc {
     pub param_types: Vec<String>,
 }
 
-/// 动态参数行里的值输入框（Gd 非 Send → NonSend Resource）。
+/// 动态参数行（Gd 非 Send → NonSend）。
 #[derive(Default)]
 pub struct ParamRows {
+    /// 值输入框（index 对齐 doc.param_names）。
     pub line_edits: Vec<Gd<LineEdit>>,
+    /// 每行删除按钮：(参数序号, 按钮)。
+    pub remove_buttons: Vec<(i32, Gd<Button>)>,
+    /// 已连接的删除按钮数。
+    pub connected: usize,
 }
 
-// ---------- 初始化：下拉 + 自动载入 ----------
+// ---------- 初始化 ----------
 
-/// 每帧重试：编辑器页面场景就绪后用 NodeTreeView 解析，并自动载入默认方案。
 pub fn resolve_editor(
     roots: Query<&GodotNodeHandle, With<EditorRoot>>,
     mut refs: ResMut<EditorRefs>,
@@ -79,22 +86,45 @@ pub fn resolve_editor(
                 let Some(resolved) = &refs.nodes else {
                     return;
                 };
-                let names = schemes::scheme_names();
-                let mut select = godot.get::<OptionButton>(resolved.scheme_select);
-                select.clear();
-                for name in &names {
-                    select.add_item(name);
-                }
-                let preferred = names.iter().position(|n| n.contains("复刻")).unwrap_or(0);
-                if !names.is_empty() {
-                    select.select(preferred as i32);
-                }
+                populate_scheme_select(resolved, &mut godot, Some("复刻"));
                 load_current(resolved, &mut doc, &mut rows, &mut godot);
                 return;
             }
             Err(_) => continue,
         }
     }
+}
+
+/// 动态删除按钮的 typed 连接（每帧补连未连接的按钮）。
+pub fn connect_remove_buttons(
+    mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    signals: GodotSignals<ParamRemoveClicked>,
+) {
+    while rows.connected < rows.remove_buttons.len() {
+        let (index, button) = rows.remove_buttons[rows.connected].clone();
+        let handle = GodotNodeHandle::from_instance_id(button.instance_id());
+        signals.connect(handle, "pressed", None, move |_a, _n, _e| {
+            Some(ParamRemoveClicked { index })
+        });
+        rows.connected += 1;
+    }
+}
+
+fn populate_scheme_select(nodes: &EditorNodes, godot: &mut GodotAccess, prefer: Option<&str>) {
+    let names = schemes::scheme_names();
+    let mut select = godot.get::<OptionButton>(nodes.scheme_select);
+    select.clear();
+    for name in &names {
+        select.add_item(name);
+    }
+    if names.is_empty() {
+        return;
+    }
+    let preferred = names
+        .iter()
+        .position(|n| prefer.map(|p| n.contains(p)).unwrap_or(false))
+        .unwrap_or(0);
+    select.select(preferred as i32);
 }
 
 // ---------- 事件处理 ----------
@@ -112,17 +142,112 @@ pub fn on_load_clicked(
 }
 
 pub fn on_scheme_picked(
-    trigger: On<EditorSchemePicked>,
+    _trigger: On<EditorSchemePicked>,
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut godot: GodotAccess,
 ) {
-    // 选择即载入；index 仅用于触发。
-    let _ = trigger.event().index;
     if let Some(nodes) = &refs.nodes {
         load_current(nodes, &mut doc, &mut rows, &mut godot);
     }
+}
+
+pub fn on_new_scheme_clicked(
+    _trigger: On<EditorNewSchemeClicked>,
+    refs: Res<EditorRefs>,
+    mut doc: ResMut<EditorDoc>,
+    mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut godot: GodotAccess,
+) {
+    let Some(nodes) = &refs.nodes else { return };
+    // 新建：生成一份最小合法方案，刷新下拉并载入。
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let name = format!("新方案-{stamp}.json");
+    let path = schemes::scheme_path(&name);
+    let body = serde_json::json!({
+        "schema_version": 1,
+        "scheme": {
+            "name": "新方案",
+            "description": "通过 GUI 新建",
+            "entity": { "key_field": "姓名", "duplicate": "report" },
+            "parameters": [],
+            "sources": [],
+            "derived": [],
+            "aggregates": [],
+            "groups": [],
+            "outputs": []
+        }
+    });
+    match serde_json::to_string_pretty(&body)
+        .ok()
+        .map(|text| std::fs::write(&path, text))
+    {
+        Some(Ok(())) => log(nodes, &mut godot, &format!("已新建：{path}")),
+        _ => {
+            log(nodes, &mut godot, "新建方案失败（写入错误）");
+            return;
+        }
+    }
+    populate_scheme_select(nodes, &mut godot, Some(name.as_str()));
+    load_current(nodes, &mut doc, &mut rows, &mut godot);
+}
+
+pub fn on_add_param_clicked(
+    _trigger: On<EditorAddParamClicked>,
+    refs: Res<EditorRefs>,
+    mut doc: ResMut<EditorDoc>,
+    mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut godot: GodotAccess,
+) {
+    let Some(nodes) = &refs.nodes else { return };
+    let Some(raw) = &mut doc.raw else {
+        log(nodes, &mut godot, "尚未载入方案");
+        return;
+    };
+    let Some(params) = raw["scheme"]["parameters"].as_array_mut() else {
+        log(nodes, &mut godot, "方案缺少 parameters 数组");
+        return;
+    };
+    let idx = params.len();
+    let pname = format!("参数{idx}");
+    params.push(serde_json::json!({
+        "name": pname, "label": pname, "value_type": "text", "value": ""
+    }));
+    doc.param_names.push(pname);
+    doc.param_types.push("text".into());
+    render_param_rows(nodes, &doc, &mut rows, &mut godot);
+    log(
+        nodes,
+        &mut godot,
+        &format!("已新增参数（共 {} 个）", idx + 1),
+    );
+}
+
+pub fn on_remove_param(
+    trigger: On<ParamRemoveClicked>,
+    refs: Res<EditorRefs>,
+    mut doc: ResMut<EditorDoc>,
+    mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut godot: GodotAccess,
+) {
+    let Some(nodes) = &refs.nodes else { return };
+    let idx = trigger.event().index;
+    let Some(raw) = &mut doc.raw else { return };
+    let Some(params) = raw["scheme"]["parameters"].as_array_mut() else {
+        return;
+    };
+    if idx < 0 || idx as usize >= params.len() {
+        return;
+    }
+    let removed = params.remove(idx as usize).to_string();
+    doc.param_names.remove(idx as usize);
+    doc.param_types.remove(idx as usize);
+    render_param_rows(nodes, &doc, &mut rows, &mut godot);
+    log(nodes, &mut godot, &format!("已删除参数 [{idx}]：{removed}"));
 }
 
 pub fn on_validate_clicked(
@@ -152,8 +277,7 @@ pub fn on_save_clicked(
         log(nodes, &mut godot, "尚未载入方案");
         return;
     };
-    let params = raw["scheme"]["parameters"].as_array_mut();
-    let Some(params) = params else {
+    let Some(params) = raw["scheme"]["parameters"].as_array_mut() else {
         log(nodes, &mut godot, "方案缺少 parameters 数组");
         return;
     };
@@ -163,10 +287,7 @@ pub fn on_save_clicked(
         };
         let text = edit.get_text().to_string();
         let ty = doc.param_types.get(i).map(String::as_str).unwrap_or("text");
-        let value = parse_value(ty, &text);
-        if let Some(value) = value {
-            entry["value"] = value;
-        } else {
+        let Some(value) = parse_value(ty, &text) else {
             log(
                 nodes,
                 &mut godot,
@@ -176,7 +297,8 @@ pub fn on_save_clicked(
                 ),
             );
             return;
-        }
+        };
+        entry["value"] = value;
     }
     if let Ok(text) = serde_json::to_string_pretty(&raw) {
         match std::fs::write(path, text) {
@@ -188,7 +310,7 @@ pub fn on_save_clicked(
     }
 }
 
-// ---------- 载入与行渲染 ----------
+// ---------- 载入 / 渲染 ----------
 
 fn load_current(
     nodes: &EditorNodes,
@@ -201,7 +323,11 @@ fn load_current(
         .get_text()
         .to_string();
     if name.is_empty() {
-        log(nodes, godot, "方案列表为空，请先在 user://schemes 放 .json");
+        log(
+            nodes,
+            godot,
+            "方案列表为空，请先在 user://schemes 放 .json 或新建",
+        );
         return;
     }
     let path = schemes::scheme_path(&name);
@@ -250,18 +376,44 @@ fn load_current(
                 .to_string(),
         );
     }
+    godot.get::<Label>(nodes.meta_label).set_text(&format!(
+        "已载入：{meta}　参数 {} 个　方案文件：{path_for_msg}",
+        params.len()
+    ));
+    render_param_rows(nodes, doc, rows, godot);
+    log(
+        nodes,
+        godot,
+        &format!("载入成功：{meta}（{} 个参数）", params.len()),
+    );
+}
 
-    // 清空旧的参数行
+/// 依据 doc 重新渲染参数行（先释放旧行）。
+fn render_param_rows(
+    nodes: &EditorNodes,
+    doc: &EditorDoc,
+    rows: &mut ParamRows,
+    godot: &mut GodotAccess,
+) {
     for edit in rows.line_edits.drain(..) {
         if let Some(mut parent) = edit.get_parent() {
             parent.queue_free();
         }
     }
     rows.line_edits.clear();
+    rows.remove_buttons.clear();
+    rows.connected = 0;
 
-    // 渲染参数行：名称 + 值输入
+    let params = doc
+        .raw
+        .as_ref()
+        .and_then(|r| r.get("scheme"))
+        .and_then(|s| s.get("parameters"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     let mut box_node = godot.get::<VBoxContainer>(nodes.params_box);
-    for p in &params {
+    for (i, p) in params.iter().enumerate() {
         let pname = p.get("name").and_then(|v| v.as_str()).unwrap_or("?");
         let ptype = p
             .get("value_type")
@@ -277,19 +429,15 @@ fn load_current(
         let mut edit = LineEdit::new_alloc();
         edit.set_text(&value);
         row.add_child(&edit);
+
+        let mut remove = Button::new_alloc();
+        remove.set_text("删除");
+        row.add_child(&remove);
+
         box_node.add_child(&row);
         rows.line_edits.push(edit);
+        rows.remove_buttons.push((i as i32, remove));
     }
-
-    godot.get::<Label>(nodes.meta_label).set_text(&format!(
-        "已载入：{meta}　参数 {n} 个，方案文件：{path_for_msg}",
-        n = params.len()
-    ));
-    log(
-        nodes,
-        godot,
-        &format!("载入成功：{meta}（{} 个参数）", params.len()),
-    );
 }
 
 fn parse_value(ty: &str, text: &str) -> Option<serde_json::Value> {

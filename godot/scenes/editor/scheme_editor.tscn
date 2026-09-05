@@ -36,6 +36,10 @@ text = "方案："
 layout_mode = 3
 size_flags_horizontal = 3
 
+[node name="NewBtn" type="Button" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "新建方案"
+
 [node name="LoadBtn" type="Button" parent="Margin/VBox/Toolbar"]
 layout_mode = 2
 text = "载入"
@@ -53,26 +57,48 @@ layout_mode = 2
 autowrap_mode = 2
 text = "（未载入方案）"
 
-[node name="ParamsTitle" type="Label" parent="Margin/VBox"]
+[node name="Split" type="HSplitContainer" parent="Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = 660
+
+[node name="ParamsPanel" type="PanelContainer" parent="Margin/VBox/Split"]
+layout_mode = 2
+
+[node name="ParamsVBox" type="VBoxContainer" parent="Margin/VBox/Split/ParamsPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ParamsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox"]
+layout_mode = 2
+
+[node name="ParamsTitle" type="Label" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
 layout_mode = 2
 text = "参数（值可编辑，保存后写回方案文件）"
+size_flags_horizontal = 3
 
-[node name="ParamsScroll" type="ScrollContainer" parent="Margin/VBox"]
+[node name="AddParamBtn" type="Button" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
+layout_mode = 2
+text = "+ 新增参数"
+
+[node name="ParamsScroll" type="ScrollContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="ParamsBox" type="VBoxContainer" parent="Margin/VBox/ParamsScroll"]
+[node name="ParamsBox" type="VBoxContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 4
 
-[node name="Placeholder" type="Label" parent="Margin/VBox/ParamsScroll/ParamsBox"]
+[node name="Placeholder" type="Label" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll/ParamsBox"]
 layout_mode = 2
-text = "数据源 / 派生 / 聚合 / 计算组 / 输出等编辑页：后续迭代（先实现参数编辑与保存）"
+text = "数据源 / 派生 / 聚合 / 计算组 / 输出等编辑页：后续迭代"
 modulate = Color(0.6, 0.6, 0.6, 1)
 
-[node name="Log" type="RichTextLabel" parent="Margin/VBox"]
+[node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 120)
+
+[node name="Log" type="RichTextLabel" parent="Margin/VBox/Split/LogPanel"]
+layout_mode = 2
 bbcode_enabled = true
 scroll_following = true

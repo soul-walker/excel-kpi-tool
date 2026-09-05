@@ -21,7 +21,7 @@ pub struct UiNodes {
     pub validate_btn: GodotNodeHandle,
     #[node("Margin/VBox/ActionRow/DryRunBtn")]
     pub dry_btn: GodotNodeHandle,
-    #[node("Margin/VBox/Log")]
+    #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,
 }
 

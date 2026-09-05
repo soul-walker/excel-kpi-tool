@@ -9,9 +9,9 @@ use tracing::{info, warn};
 
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    BrowseMonthClicked, EditorLoadClicked, EditorSaveClicked, EditorSchemePicked,
-    EditorValidateClicked, MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage,
-    ValidateClicked,
+    BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
+    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RunClicked,
+    ShowEditorPage, ShowRunPage, ValidateClicked,
 };
 use super::view::{UiHost, UiRefs};
 
@@ -155,14 +155,14 @@ fn spawn_editor_page(
             "Margin/VBox/Toolbar/SchemeSelect",
             "item_selected",
             |args, _node, _entity| {
-                let index = args
-                    .first()
-                    .and_then(|v| v.try_to::<i64>().ok())
-                    .unwrap_or_default();
-                Some(EditorSchemePicked {
-                    index: index as i32,
-                })
+                let _ = args.first();
+                Some(EditorSchemePicked)
             },
+        )
+        .with_signal_connection(
+            "Margin/VBox/Toolbar/NewBtn",
+            "pressed",
+            |_args, _node, _entity| Some(EditorNewSchemeClicked),
         )
         .with_signal_connection(
             "Margin/VBox/Toolbar/LoadBtn",
@@ -178,6 +178,11 @@ fn spawn_editor_page(
             "Margin/VBox/Toolbar/ValidateBtn",
             "pressed",
             |_args, _node, _entity| Some(EditorValidateClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow/AddParamBtn",
+            "pressed",
+            |_args, _node, _entity| Some(EditorAddParamClicked),
         );
     let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);
