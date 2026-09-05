@@ -656,12 +656,17 @@ fn write_params(raw: &mut serde_json::Value, rows: &ParamRows) -> Result<(), Str
         return Err("缺少 parameters 数组".into());
     };
     params.clear();
+    let mut seen: Vec<String> = Vec::new();
     for i in 0..rows.name_edits.len() {
         let name = rows.name_edits[i].get_text().to_string();
         let name = name.trim();
         if name.is_empty() {
             return Err(format!("第 {} 行参数名不能为空", i + 1));
         }
+        if seen.iter().any(|s| s == name) {
+            return Err(format!("参数名重复：{name}"));
+        }
+        seen.push(name.to_string());
         let ty = type_key(rows.type_buttons[i].get_selected());
         let text = rows.value_edits[i].get_text().to_string();
         // 值留空允许（未填状态），存空文本；运行时若被公式引用会在校验期暴露。

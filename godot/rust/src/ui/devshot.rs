@@ -2,8 +2,8 @@
 //!
 //! 时序（帧）：30 校验 → 60 dry-run → 90 切方案编辑页 →
 //! 120 新建方案 → 125 填名称/描述 → 130/140 新增两个参数 →
-//! 150 编辑第 1 行（名称=考勤分、类型=小数、值=99.5）→ 180 保存（改名落盘）
-//! → 260 截图退出。
+//! 150 编辑第 1 行（名称=考勤分、值=99.5，自动识别小数）→ 170 第 2 行改名同名 →
+//! 185 保存（应报参数名重复）→ 195 第 2 行名恢复 → 210 保存成功 → 300 截图退出。
 
 use bevy::prelude::{Local, Name, NonSend, Query, Res};
 use godot::classes::{Button, Control, LineEdit, ProjectSettings};
@@ -26,17 +26,6 @@ fn click_button(
     {
         info!("KPI_SHOT: 自动点击 {name}");
         let _ = godot.get::<Button>(h).emit_signal("pressed", &[]);
-    }
-}
-
-/// 点击 ParamRows 里存储的动态删除按钮（Gd 非 Send，只能存 NonSend）。
-fn click_remove_button(at_frame: u32, now: u32, rows: &ParamRows, index: usize) {
-    if now == at_frame
-        && let Some((_, button)) = rows.remove_buttons.get(index)
-    {
-        info!("KPI_SHOT: 自动点击 删除参数[{index}]");
-        let mut b = button.clone();
-        let _ = b.emit_signal("pressed", &[]);
     }
 }
 
@@ -102,11 +91,25 @@ pub fn dev_shot_system(
         }
     }
     // 删除第 2 行参数（index=1）
-    click_remove_button(160, *frame, &rows, 1);
-    // 保存（改名 → 写 schemes/自检方案.json）
-    click_button(180, *frame, find("SaveBtn"), "保存", &mut godot);
+    // 把第 2 行也改成同名“考勤分” → 保存应被参数名重复校验拦截
+    if *frame == 170 {
+        if rows.name_edits.len() >= 2 {
+            rows.name_edits[1].clone().set_text("考勤分");
+            info!("KPI_SHOT: 第 2 行改名 考勤分（期望保存报重复）");
+        } else {
+            warn!("KPI_SHOT: 参数行不足，跳过重复名设置");
+        }
+    }
+    // 保存（应失败：参数名重复）
+    click_button(185, *frame, find("SaveBtn"), "保存(期望失败)", &mut godot);
+    // 把第 2 行名改回 参数1 → 再次保存应成功
+    if *frame == 195 && rows.name_edits.len() >= 2 {
+        rows.name_edits[1].clone().set_text("参数1");
+        info!("KPI_SHOT: 第 2 行名恢复为 参数1");
+    }
+    click_button(210, *frame, find("SaveBtn"), "保存", &mut godot);
 
-    if *frame == 260
+    if *frame == 300
         && let Some(handle) = find("AppTitle")
     {
         info!("KPI_SHOT: 截图并退出");
