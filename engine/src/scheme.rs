@@ -6,6 +6,11 @@
 //! - 内部字段一律英文 snake_case；中文只属于 GUI 显示层；
 //! - v0.1 中所有表达式仅以字符串保存，语义求值由 calc DSL（M1）实现；
 //! - 存储形态 = 单个 JSON 文件（版本化迁移，见 `VersionedScheme`）。
+//!
+//! 视图模型：考核以“某人某方面”为点，所有明细基本以方案 `entity.key_field` 的人为主键；
+//! 只有“请假替上课”这类一条记录牵涉两个人（请假人 + 替课老师）的台账，才需要派生“另一方视角”
+//! 的视图（把行内他人列映射成新 key）。因此 derived 为**单输入**行视图（输入可为 source 或先前
+//! derived），靠 map/merge/when/group 表达视角变换，**不需要多表 join/union**（评审确认无此场景）。
 
 use std::collections::BTreeMap;
 
