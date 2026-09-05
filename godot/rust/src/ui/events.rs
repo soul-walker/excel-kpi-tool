@@ -97,3 +97,39 @@ pub(crate) struct AddColClicked;
 pub(crate) struct ColRemoveClicked {
     pub index: i32,
 }
+
+/// 编辑器：“+ 新增派生视图”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddDerivedClicked;
+
+/// 编辑器：删除第 index 个派生视图。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct DerivedRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：选中第 index 个派生（“详情”按钮）编辑其分组/映射/字段。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct DerivedDetailClicked {
+    pub index: i32,
+}
+
+/// 编辑器：“+ 映射”到当前派生。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddDerivedMapClicked;
+
+/// 编辑器：删除当前派生的第 index 条映射。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct DerivedMapRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：“+ 字段”到当前派生。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddDerivedFieldClicked;
+
+/// 编辑器：删除当前派生的第 index 个字段。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct DerivedFieldRemoveClicked {
+    pub index: i32,
+}

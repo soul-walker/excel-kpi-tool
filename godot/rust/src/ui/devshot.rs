@@ -3,7 +3,9 @@
 //! 时序（帧）：30 校验 → 60 dry-run → 90 切方案编辑页 →
 //! 120 新建方案 → 125 填名称/描述 → 130/140 新增两个参数 →
 //! 150 编辑第 1 行（名称=考勤分、值=99.5，自动识别小数）→ 170 第 2 行改名同名 →
-//! 185 保存（应报参数名重复）→ 195 第 2 行名恢复 → 210 保存成功 → 300 截图退出。
+//! 185 保存（应报参数名重复）→ 195 第 2 行名恢复 → 210 保存成功 → 225 校验通过 →
+//! 232 切数据源页 → 235/240 加源加列 → 248 保存 →
+//! 252 切派生页 → 256/262/268 新增派生+映射+字段 → 278 填值 → 288 保存 → 380 截图退出。
 
 use bevy::prelude::{Local, Name, NonSend, Query, Res};
 use godot::classes::{Button, Control, LineEdit, ProjectSettings, TabContainer};
@@ -11,6 +13,7 @@ use godot::obj::Singleton;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle};
 use tracing::{info, warn};
 
+use super::derived::{DerivedDetail, DerivedListRows};
 use super::editor::ParamRows;
 use super::view::UiRefs;
 
@@ -33,6 +36,8 @@ pub fn dev_shot_system(
     mut frame: Local<u32>,
     refs: Res<UiRefs>,
     rows: NonSend<ParamRows>,
+    dlist: NonSend<DerivedListRows>,
+    ddetail: NonSend<DerivedDetail>,
     scene_nodes: Query<(&GodotNodeHandle, &Name)>,
     mut godot: GodotAccess,
 ) {
@@ -131,7 +136,36 @@ pub fn dev_shot_system(
     // 保存（把数据源/列映射写入文件）
     click_button(248, *frame, find("SaveBtn"), "保存(含数据源)", &mut godot);
 
-    if *frame == 300
+    // —— 派生页签：新增派生视图并编辑其映射/字段 ——
+    if *frame == 252
+        && let Some(tabs) = find("Tabs")
+    {
+        godot.get::<TabContainer>(tabs).set_current_tab(2);
+        info!("KPI_SHOT: 已切到派生页签");
+    }
+    click_button(256, *frame, find("AddDerivedBtn"), "新增派生", &mut godot);
+    click_button(262, *frame, find("AddMapBtn"), "新增映射行", &mut godot);
+    click_button(268, *frame, find("AddFieldBtn"), "新增字段", &mut godot);
+    if *frame == 278 {
+        if !dlist.id_edits.is_empty() {
+            dlist.id_edits[0].clone().set_text("代课视角");
+        }
+        if !ddetail.map_dst.is_empty() && !ddetail.map_src.is_empty() {
+            ddetail.map_dst[0].clone().set_text("姓名");
+            ddetail.map_src[0].clone().set_text("替上课老师");
+        }
+        if let Some(g) = &ddetail.group_edit {
+            g.clone().set_text("姓名");
+        }
+        if !ddetail.field_name.is_empty() && !ddetail.field_expr.is_empty() {
+            ddetail.field_name[0].clone().set_text("节数");
+            ddetail.field_expr[0].clone().set_text("SUM(节数)");
+        }
+        info!("KPI_SHOT: 已填派生（代课视角/姓名←替上课老师/SUM(节数)）");
+    }
+    click_button(288, *frame, find("SaveBtn"), "保存(含派生)", &mut godot);
+
+    if *frame == 380
         && let Some(handle) = find("AppTitle")
     {
         info!("KPI_SHOT: 截图并退出");

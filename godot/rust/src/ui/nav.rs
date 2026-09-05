@@ -7,9 +7,11 @@ use godot::builtin::GString;
 use godot_bevy::prelude::{GodotNodeHandle, GodotScene, GodotSignals};
 use tracing::{info, warn};
 
+use super::derived::{DerivedDetail as DvDetail, DerivedListRows as DvList};
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    AddColClicked, AddSourceClicked, BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked,
+    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddDerivedMapClicked,
+    AddSourceClicked, BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked,
     EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
     MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
 };
@@ -43,6 +45,8 @@ pub fn setup_router(
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
 ) {
     for (handle, name) in &nodes {
         match name.as_str() {
@@ -65,6 +69,8 @@ pub fn setup_router(
     param_rows.clear();
     src_rows.clear();
     col_rows.clear();
+    dlist.clear();
+    ddetail.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -93,6 +99,8 @@ pub fn on_show_editor_page(
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
 ) {
     info!("导航：方案编辑");
     editor_refs.nodes = None;
@@ -102,6 +110,8 @@ pub fn on_show_editor_page(
     param_rows.clear();
     src_rows.clear();
     col_rows.clear();
+    dlist.clear();
+    ddetail.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
 
@@ -203,6 +213,21 @@ fn spawn_editor_page(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow/AddColBtn",
             "pressed",
             |_args, _node, _entity| Some(AddColClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow/AddDerivedBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddDerivedClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead/AddMapBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddDerivedMapClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead/AddFieldBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddDerivedFieldClicked),
         );
     let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);

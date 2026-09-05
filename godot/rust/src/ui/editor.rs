@@ -5,6 +5,7 @@
 //! - 「新建方案」只建内存草稿（不写盘），名称预填 `未命名方案-<时间戳>`；
 //! - 页面顶部名称/描述可直接编辑；保存时若名称与当前文件基名不同则重命名文件；
 //! - 参数行：名称(LineEdit) / 类型(OptionButton) / 值(LineEdit) / 删除(Button)。
+#![allow(clippy::too_many_arguments)]
 
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -21,6 +22,7 @@ use tracing::info;
 
 use crate::bridge;
 
+use super::derived::{self, DerivedDetail as DvDetail, DerivedListRows as DvList};
 use super::events::{
     EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
     EditorSchemePicked, EditorValidateClicked, ParamRemoveClicked, ParamTypeChosen,
@@ -51,6 +53,18 @@ pub struct EditorNodes {
     pub cols_title: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsScroll/ColsBox")]
     pub cols_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedScroll/DerivedBox")]
+    pub derived_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/DetailTitle")]
+    pub derived_detail_title: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow/GroupEdit"
+    )]
+    pub derived_group_edit: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapBox")]
+    pub derived_map_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldBox")]
+    pub derived_field_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,
 }
@@ -72,6 +86,8 @@ pub struct EditorDoc {
     pub raw: Option<serde_json::Value>,
     /// 数据源页签中当前选中编辑其列映射的数据源序号。
     pub selected_source: i32,
+    /// 派生页签中当前选中查看详情（分组/映射/字段）的派生序号。
+    pub selected_derived: i32,
 }
 
 /// 动态参数行控件（Gd 非 Send → NonSend）。
@@ -168,6 +184,8 @@ pub fn resolve_editor(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     if refs.nodes.is_some() {
@@ -191,6 +209,8 @@ pub fn resolve_editor(
                     &mut rows,
                     &mut src_rows,
                     &mut col_rows,
+                    &mut dlist,
+                    &mut ddetail,
                     &mut godot,
                 );
                 return;
@@ -265,6 +285,8 @@ fn load_current(
     rows: &mut ParamRows,
     src_rows: &mut SrcRows,
     col_rows: &mut SrcCols,
+    dlist: &mut DvList,
+    ddetail: &mut DvDetail,
     godot: &mut GodotAccess,
 ) {
     let file_name = godot
@@ -311,6 +333,8 @@ fn load_current(
     render_param_rows(nodes, doc, rows, godot);
     doc.selected_source = 0;
     sources::render_all(nodes, doc, src_rows, col_rows, godot);
+    doc.selected_derived = 0;
+    derived::render_all(nodes, doc, dlist, ddetail, godot);
     log_ok(
         nodes,
         godot,
@@ -412,6 +436,8 @@ pub fn on_load_clicked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
@@ -421,6 +447,8 @@ pub fn on_load_clicked(
             &mut rows,
             &mut src_rows,
             &mut col_rows,
+            &mut dlist,
+            &mut ddetail,
             &mut godot,
         );
     }
@@ -433,6 +461,8 @@ pub fn on_scheme_picked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
@@ -442,6 +472,8 @@ pub fn on_scheme_picked(
             &mut rows,
             &mut src_rows,
             &mut col_rows,
+            &mut dlist,
+            &mut ddetail,
             &mut godot,
         );
     }
@@ -454,6 +486,8 @@ pub fn on_new_scheme_clicked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
+    mut dlist: bevy::prelude::NonSendMut<DvList>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -485,6 +519,8 @@ pub fn on_new_scheme_clicked(
     godot.get::<LineEdit>(nodes.desc_edit).set_text("");
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
     sources::render_all(nodes, &doc, &mut src_rows, &mut col_rows, &mut godot);
+    doc.selected_derived = 0;
+    derived::render_all(nodes, &doc, &mut dlist, &mut ddetail, &mut godot);
     log_ok(
         nodes,
         &mut godot,
@@ -603,6 +639,8 @@ pub fn on_validate_clicked(
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
+    dlist: bevy::prelude::NonSend<DvList>,
+    ddetail: bevy::prelude::NonSend<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -633,6 +671,11 @@ pub fn on_validate_clicked(
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
+    // 派生表与详情 → raw。
+    if let Err(err) = derived::write_back(&mut raw, &dlist, &ddetail, doc.selected_derived) {
+        log_err(nodes, &mut godot, &format!("校验中止：{err}"));
+        return;
+    }
     let text = match serde_json::to_string(&raw) {
         Ok(t) => t,
         Err(e) => {
@@ -653,6 +696,8 @@ pub fn on_save_clicked(
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
+    dlist: bevy::prelude::NonSend<DvList>,
+    ddetail: bevy::prelude::NonSend<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -689,6 +734,11 @@ pub fn on_save_clicked(
     }
     // 数据源与列映射控件 → raw。
     if let Err(err) = sources::write_back(&mut raw, &src_rows, &col_rows, doc.selected_source) {
+        log_err(nodes, &mut godot, &format!("保存失败：{err}"));
+        return;
+    }
+    // 派生表与详情 → raw。
+    if let Err(err) = derived::write_back(&mut raw, &dlist, &ddetail, doc.selected_derived) {
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }

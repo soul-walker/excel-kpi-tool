@@ -173,13 +173,100 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 4
 
-[node name="后续" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+[node name="派生" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="DerivedHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
 layout_mode = 2
 
-[node name="PlanHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/后续"]
+[node name="DerivedHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
+layout_mode = 2
+text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。点行尾「详情」编辑该派生。"
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddDerivedBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
+layout_mode = 2
+text = "+ 新增派生"
+
+[node name="DerivedScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
+layout_mode = 2
+
+[node name="DerivedBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="DetailScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DetailVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
 autowrap_mode = 2
-text = "派生明细 / 聚合指标 / 计算分组 / 输出 编辑：后续迭代"
+text = "派生详情（未选中派生）"
+
+[node name="GroupRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="GroupLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(56, 0)
+text = "分组列："
+
+[node name="GroupEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/GroupRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "空 = 逐行；填列名 = 按该列分组再算字段"
+
+[node name="MapHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+
+[node name="MapTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead"]
+layout_mode = 2
+text = "列映射（目标 = 源列；把他人列映射成姓名=换人视角）"
+size_flags_horizontal = 3
+
+[node name="AddMapBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MapHead"]
+layout_mode = 2
+text = "+ 映射"
+
+[node name="MapBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="FieldHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+
+[node name="FieldTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
+layout_mode = 2
+text = "派生字段（表达式；分组时可写 SUM(列)）"
+size_flags_horizontal = 3
+
+[node name="AddFieldBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
+layout_mode = 2
+text = "+ 字段"
+
+[node name="FieldBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="规划" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+
+[node name="PlanHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/规划"]
+layout_mode = 2
+autowrap_mode = 2
+text = "聚合指标 / 计算分组 / 输出 编辑：后续迭代"
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

@@ -10,6 +10,7 @@
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
 //! - `devshot`：开发自检（KPI_SHOT=1 截图）。
 
+pub mod derived;
 pub mod devshot;
 pub mod editor;
 pub mod events;
@@ -22,11 +23,13 @@ pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    AddColClicked, AddSourceClicked, BrowseMonthClicked, ColRemoveClicked, EditorAddParamClicked,
-    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
-    EditorValidateClicked, MonthDirPicked, ParamRemoveClicked, ParamTypeChosen, ParamValueEdited,
-    RunClicked, ShowEditorPage, ShowRunPage, SourceColsClicked, SourceRemoveClicked,
-    ValidateClicked,
+    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddDerivedMapClicked,
+    AddSourceClicked, BrowseMonthClicked, ColRemoveClicked, DerivedDetailClicked,
+    DerivedFieldRemoveClicked, DerivedMapRemoveClicked, DerivedRemoveClicked,
+    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
+    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, ParamRemoveClicked, ParamTypeChosen,
+    ParamValueEdited, RunClicked, ShowEditorPage, ShowRunPage, SourceColsClicked,
+    SourceRemoveClicked, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
@@ -56,7 +59,14 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<SourceRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<SourceColsClicked>::default())
             .add_plugins(GodotSignalsPlugin::<AddColClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<ColRemoveClicked>::default());
+            .add_plugins(GodotSignalsPlugin::<ColRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddDerivedClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<DerivedRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<DerivedDetailClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddDerivedMapClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<DerivedMapRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddDerivedFieldClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<DerivedFieldRemoveClicked>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<editor::EditorRefs>();
@@ -66,6 +76,8 @@ impl Plugin for UiPlugin {
         app.insert_non_send_resource(editor::ParamRows::default());
         app.insert_non_send_resource(sources::SourceRows::default());
         app.insert_non_send_resource(sources::ColRows::default());
+        app.insert_non_send_resource(derived::DerivedListRows::default());
+        app.insert_non_send_resource(derived::DerivedDetail::default());
 
         app.add_systems(bevy::prelude::Startup, nav::setup_router);
         app.add_systems(
@@ -75,6 +87,7 @@ impl Plugin for UiPlugin {
                 editor::resolve_editor,
                 editor::connect_param_signals,
                 sources::connect_sources_signals,
+                derived::connect_derived_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -97,6 +110,13 @@ impl Plugin for UiPlugin {
         app.add_observer(sources::on_source_cols);
         app.add_observer(sources::on_add_col);
         app.add_observer(sources::on_remove_col);
+        app.add_observer(derived::on_add_derived);
+        app.add_observer(derived::on_remove_derived);
+        app.add_observer(derived::on_derived_detail);
+        app.add_observer(derived::on_add_map);
+        app.add_observer(derived::on_remove_map);
+        app.add_observer(derived::on_add_field);
+        app.add_observer(derived::on_remove_field);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
     }
