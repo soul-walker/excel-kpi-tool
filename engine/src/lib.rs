@@ -14,7 +14,7 @@ pub mod template;
 pub mod workbook;
 pub mod xmlpatch;
 
-pub use calc::{BinOp, Node, Value, eval, parse};
+pub use calc::{BinOp, Node, Row, Value, eval, eval_rows, parse};
 pub use error::{Error, Result};
 pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_key};
 pub use scheme::{
@@ -23,7 +23,7 @@ pub use scheme::{
     OutputSpec, ParamValue, Parameter, ParseSpec, PatchColumn, PatchTemplate, SCHEMA_VERSION,
     Scheme, Severity, SourceSpec, VersionedScheme,
 };
-pub use table::{CellValue, Column, Row, Table};
+pub use table::{CellValue, Column, Table};
 pub use template::{SheetEdit, patch_workbook};
 pub use workbook::{UmyaWorkbook, WorkbookIO};
 pub use xmlpatch::patch_cells;

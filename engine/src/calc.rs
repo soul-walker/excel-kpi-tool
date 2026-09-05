@@ -485,31 +485,108 @@ impl fmt::Display for Value {
 /// 求值回调：把点分路径解析为值；返回 None 表示"未知/缺失"。
 pub type Lookup<'a> = &'a dyn Fn(&[String]) -> Option<Value>;
 
+/// 行：聚合求值用（列 alias -> 值）。
+pub type Row = std::collections::HashMap<String, Value>;
+
+/// 无行上下文求值（字段/参数表达式）。
 pub fn eval(node: &Node, lookup: Lookup) -> Result<Value, String> {
+    eval_core(node, lookup, None, None)
+}
+
+/// 带行集合求值：其中 `SUM(expr WHERE cond)` 等聚合会在这些行上求值。
+pub fn eval_rows(node: &Node, lookup: Lookup, rows: &[Row]) -> Result<Value, String> {
+    eval_core(node, lookup, Some(rows), None)
+}
+
+fn resolve_path(lookup: Lookup, row: Option<&Row>, p: &[String]) -> Value {
+    if let Some(r) = row
+        && p.len() == 1
+        && let Some(v) = r.get(&p[0])
+    {
+        return v.clone();
+    }
+    lookup(p).unwrap_or(Value::Empty)
+}
+
+fn eval_core(
+    node: &Node,
+    lookup: Lookup,
+    rows: Option<&[Row]>,
+    row: Option<&Row>,
+) -> Result<Value, String> {
     match node {
         Node::Num(v) => Ok(Value::Num(*v)),
         Node::Str(s) => Ok(Value::Str(s.clone())),
         Node::Bool(b) => Ok(Value::Bool(*b)),
-        Node::Path(p) => Ok(lookup(p).unwrap_or(Value::Empty)),
-        Node::Not(x) => Ok(Value::Bool(!as_bool(&eval(x, lookup)?)?)),
+        Node::Path(p) => Ok(resolve_path(lookup, row, p)),
+        Node::Not(x) => Ok(Value::Bool(!as_bool(&eval_core(x, lookup, rows, row)?)?)),
         Node::Coalesce { l, r } => {
-            let lv = eval(l, lookup)?;
+            let lv = eval_core(l, lookup, rows, row)?;
             if lv != Value::Empty {
                 Ok(lv)
             } else {
-                eval(r, lookup)
+                eval_core(r, lookup, rows, row)
             }
         }
         Node::If { cond, then, els } => {
-            if as_bool(&eval(cond, lookup)?)? {
-                eval(then, lookup)
+            if as_bool(&eval_core(cond, lookup, rows, row)?)? {
+                eval_core(then, lookup, rows, row)
             } else {
-                eval(els, lookup)
+                eval_core(els, lookup, rows, row)
             }
         }
-        Node::Bin { op, l, r } => eval_bin(*op, &eval(l, lookup)?, &eval(r, lookup)?),
-        Node::Call { name, args } => eval_call(name, args, lookup),
-        Node::Agg { op, .. } => Err(format!("聚合 {op} 的行作用域求值尚未实现（M1 1.1）")),
+        Node::Bin { op, l, r } => {
+            let lv = eval_core(l, lookup, rows, row)?;
+            let rv = eval_core(r, lookup, rows, row)?;
+            eval_bin(*op, &lv, &rv)
+        }
+        Node::Call { name, args } => {
+            let mut vals = Vec::with_capacity(args.len());
+            for a in args {
+                vals.push(eval_core(a, lookup, rows, row)?);
+            }
+            eval_call(name, &vals)
+        }
+        Node::Agg { op, expr, cond } => {
+            let list = rows.ok_or_else(|| "聚合表达式缺少行集合上下文".to_string())?;
+            let mut nums = Vec::new();
+            let mut count = 0usize;
+            for r in list {
+                let include = match cond {
+                    Some(c) => as_bool(&eval_core(c, lookup, None, Some(r))?)?,
+                    None => true,
+                };
+                if !include {
+                    continue;
+                }
+                count += 1;
+                if op != "count" {
+                    let v = eval_core(expr, lookup, None, Some(r))?;
+                    nums.push(to_num(&v)?);
+                }
+            }
+            match op.as_str() {
+                "count" => Ok(Value::Num(count as f64)),
+                "sum" => Ok(Value::Num(nums.iter().sum())),
+                "avg" => Ok(Value::Num(if nums.is_empty() {
+                    0.0
+                } else {
+                    nums.iter().sum::<f64>() / nums.len() as f64
+                })),
+                "min" | "max" => {
+                    if nums.is_empty() {
+                        Ok(Value::Empty)
+                    } else if op == "min" {
+                        Ok(Value::Num(nums.into_iter().fold(f64::INFINITY, f64::min)))
+                    } else {
+                        Ok(Value::Num(
+                            nums.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                        ))
+                    }
+                }
+                other => Err(format!("未知聚合操作: {other}")),
+            }
+        }
     }
 }
 
@@ -553,17 +630,14 @@ fn eval_bin(op: BinOp, l: &Value, r: &Value) -> Result<Value, String> {
     })
 }
 
-fn eval_call(name: &str, args: &[Node], lookup: Lookup) -> Result<Value, String> {
+fn eval_call(name: &str, vals: &[Value]) -> Result<Value, String> {
     let lc = name.to_lowercase();
     match lc.as_str() {
         "min" | "max" => {
-            if args.is_empty() {
+            if vals.is_empty() {
                 return Err("MIN/MAX 需要至少一个参数".into());
             }
-            let mut nums = Vec::new();
-            for a in args {
-                nums.push(to_num(&eval(a, lookup)?)?);
-            }
+            let nums: Vec<f64> = vals.iter().map(to_num).collect::<Result<_, _>>()?;
             let v = if lc == "min" {
                 nums.into_iter().fold(f64::INFINITY, f64::min)
             } else {
@@ -572,16 +646,19 @@ fn eval_call(name: &str, args: &[Node], lookup: Lookup) -> Result<Value, String>
             Ok(Value::Num(v))
         }
         "round" => {
-            let v = to_num(&eval(&args[0], lookup)?)?;
-            let digits = if args.len() > 1 {
-                to_num(&eval(&args[1], lookup)?)? as i32
+            if vals.is_empty() {
+                return Err("ROUND 缺少参数".into());
+            }
+            let v = to_num(&vals[0])?;
+            let digits = if vals.len() > 1 {
+                to_num(&vals[1])? as i32
             } else {
                 0
             };
             let f = 10f64.powi(digits);
             Ok(Value::Num((v * f).round() / f))
         }
-        "abs" => Ok(Value::Num(to_num(&eval(&args[0], lookup)?)?.abs())),
+        "abs" => Ok(Value::Num(to_num(&vals[0])?.abs())),
         _ => Err(format!("未知函数: {name}")),
     }
 }
@@ -652,6 +729,33 @@ mod tests {
         // 行作用域求值待 M1-1.1；这里只验证语法可解析。
         parse("SUM(天数 WHERE 类型 != '公')").expect("聚合表达式应可解析");
         parse("MAX(0, 课时S - 参数.基础课时)").expect("普通调用应可解析");
+    }
+
+    #[test]
+    fn aggregate_row_eval() {
+        fn row(days: f64, ty: &str) -> Row {
+            let mut m = Row::new();
+            m.insert("天数".to_string(), Value::Num(days));
+            m.insert("类型".to_string(), Value::Str(ty.to_string()));
+            m
+        }
+        let rows = vec![row(2.0, "事"), row(3.0, "公"), row(1.0, "病")];
+
+        let n = parse("SUM(天数 WHERE 类型 != '公')").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(3.0));
+
+        let n = parse("COUNT(天数 WHERE 类型 != '公')").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(2.0));
+
+        let n = parse("SUM(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(6.0));
+
+        let n = parse("AVG(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(2.0));
+
+        // 无匹配行：SUM=0、COUNT=0
+        let n = parse("SUM(天数 WHERE 类型 = '产')").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(0.0));
     }
 
     #[test]

@@ -140,3 +140,250 @@ pub fn col_letters(col: u32) -> String {
 pub fn cell_ref(row: u32, col: u32) -> String {
     format!("{}{}", col_letters(col), row)
 }
+
+// ---- 规整化读取：按方案的数据源/列定义读成 crate::table::Table ----
+
+use crate::scheme::{ColumnSpec, ColumnType, SourceSpec};
+use crate::table::{CellValue, Column, Row as TableRow, Table};
+
+/// 按 `src` 的列定义把 sheet 读成规整表格。
+/// 表头定位：优先"包含全部声明表头的行"（兼容标题行），否则退回 `src.header_row`。
+/// 支持按 `ColumnSpec.value_type` 转换、跳全空行、`parse.fill_down` 向下填充。
+pub fn read_source_table(path: &Path, src: &SourceSpec) -> Result<Table> {
+    let mut wb =
+        open_workbook_auto(path).map_err(|e| Error::Runtime(format!("打开 {path:?} 失败: {e}")))?;
+    if !wb.sheet_names().iter().any(|n| n == &src.sheet) {
+        return Err(Error::Runtime(format!("sheet 不存在: {}", src.sheet)));
+    }
+    let range = wb
+        .worksheet_range(&src.sheet)
+        .map_err(|e| Error::Runtime(format!("读取 sheet {} 失败: {e}", src.sheet)))?;
+    let (rows, cols) = range.get_size();
+
+    // —— 定位表头行 ——
+    let header_cols: Vec<&ColumnSpec> = src.columns.iter().filter(|c| c.header.is_some()).collect();
+    let mut header_idx: Option<usize> = None;
+    if !header_cols.is_empty() {
+        'outer: for r in 0..rows.min(50) {
+            for c in &header_cols {
+                let want = normalize_key(c.header.as_deref().unwrap_or(""));
+                if want.is_empty() {
+                    continue 'outer;
+                }
+                let found = (0..cols).any(|col| {
+                    matches!(
+                        range.get_value((r as u32, col as u32)),
+                        Some(Data::String(s)) if normalize_key(s) == want
+                    )
+                });
+                if !found {
+                    continue 'outer;
+                }
+            }
+            header_idx = Some(r);
+            break;
+        }
+    }
+
+    // 数据起始行（0 起始）：内容定位到表头则其后一行；否则按 src.header_row。
+    let data_start = match header_idx {
+        Some(r) => r + 1,
+        None => src.header_row.saturating_sub(1) as usize,
+    };
+
+    // —— 列 alias → range 列索引 ——
+    let mut col_alias: BTreeMap<String, usize> = BTreeMap::new();
+    let mut col_type: BTreeMap<String, ColumnType> = BTreeMap::new();
+    for c in &src.columns {
+        let mut idx = None;
+        if let Some(h) = header_idx
+            && let Some(header) = &c.header
+        {
+            let want = normalize_key(header);
+            for col in 0..cols {
+                if let Some(Data::String(s)) = range.get_value((h as u32, col as u32))
+                    && normalize_key(s) == want
+                {
+                    idx = Some(col);
+                    break;
+                }
+            }
+        }
+        if idx.is_none() {
+            idx = c.index.map(|i| (i - 1) as usize);
+        }
+        let idx = idx.ok_or_else(|| {
+            Error::Runtime(format!(
+                "列 {} 未定位（既没在表头中找到，也未给 index）",
+                c.alias
+            ))
+        })?;
+        if idx >= cols {
+            return Err(Error::Runtime(format!("列 {} 超出表宽", c.alias)));
+        }
+        col_alias.insert(c.alias.clone(), idx);
+        col_type.insert(c.alias.clone(), c.value_type);
+    }
+
+    // —— 逐行转换 ——
+    let mut out_rows: Vec<TableRow> = Vec::new();
+    for r in data_start..rows {
+        // 先 raw 预检：整行与表头同文（重复表头/小计行）→ 整行跳过
+        let mut header_like = false;
+        for c in &src.columns {
+            if let (Some(Data::String(s)), Some(h)) = (
+                range.get_value((r as u32, col_alias[&c.alias] as u32)),
+                &c.header,
+            ) && normalize_key(s) == normalize_key(h)
+            {
+                header_like = true;
+                break;
+            }
+        }
+        if header_like {
+            continue;
+        }
+
+        let mut cells = Vec::with_capacity(col_alias.len());
+        let mut any = false;
+        for c in &src.columns {
+            let idx = col_alias[&c.alias];
+            let data = range.get_value((r as u32, idx as u32));
+            let cell = to_cell(data, c.value_type)?;
+            any |= !cell.is_blank();
+            cells.push(cell);
+        }
+        if any {
+            out_rows.push(TableRow { cells });
+        }
+    }
+
+    // —— 向下填充 ——
+    if !src.parse.fill_down.is_empty() {
+        let mut last: Vec<Option<CellValue>> = vec![None; src.columns.len()];
+        for row in &mut out_rows {
+            for (i, col) in src.columns.iter().enumerate() {
+                if src.parse.fill_down.iter().any(|a| a == &col.alias)
+                    && row.cells[i].is_blank()
+                    && let Some(v) = &last[i]
+                {
+                    row.cells[i] = v.clone();
+                }
+                if !row.cells[i].is_blank() {
+                    last[i] = Some(row.cells[i].clone());
+                }
+            }
+        }
+    }
+
+    let columns: Vec<Column> = src
+        .columns
+        .iter()
+        .map(|c| Column {
+            alias: c.alias.clone(),
+            header: c.header.clone().unwrap_or_else(|| c.alias.clone()),
+        })
+        .collect();
+    Ok(Table {
+        columns,
+        rows: out_rows,
+    })
+}
+
+fn to_cell(data: Option<&Data>, ct: ColumnType) -> Result<CellValue> {
+    let Some(d) = data else {
+        return Ok(CellValue::Blank);
+    };
+    let text = |s: &str| {
+        if s.trim().is_empty() {
+            CellValue::Blank
+        } else {
+            CellValue::Text(s.to_string())
+        }
+    };
+    match (d, ct) {
+        (Data::String(s), ColumnType::Text) => Ok(text(s)),
+        (Data::String(s), ColumnType::Integer) => s
+            .trim()
+            .parse::<i64>()
+            .map(CellValue::Integer)
+            .map_err(|_| Error::Runtime(format!("整数解析失败: {s:?}"))),
+        (Data::String(s), ColumnType::Decimal) => s
+            .trim()
+            .parse::<f64>()
+            .map(CellValue::Float)
+            .map_err(|_| Error::Runtime(format!("小数解析失败: {s:?}"))),
+        (Data::String(s), _) => Ok(text(s)),
+        (Data::Int(i), ColumnType::Text) => Ok(CellValue::Text(i.to_string())),
+        (Data::Int(i), ColumnType::Decimal) => Ok(CellValue::Float(*i as f64)),
+        (Data::Int(i), _) => Ok(CellValue::Integer(*i)),
+        (Data::Float(f), ColumnType::Integer) if f.fract() == 0.0 => {
+            Ok(CellValue::Integer(*f as i64))
+        }
+        (Data::Float(f), ColumnType::Text) => Ok(CellValue::Text(f.to_string())),
+        (Data::Float(f), _) => Ok(CellValue::Float(*f)),
+        (Data::Bool(b), ColumnType::Boolean) => Ok(CellValue::Boolean(*b)),
+        (Data::Bool(b), _) => Ok(CellValue::Text(b.to_string())),
+        (Data::DateTime(dt), _) => Ok(CellValue::Text(dt.to_string())),
+        _ => Ok(CellValue::Blank),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scheme::{ColumnSpec, ParseSpec, SourceSpec};
+
+    fn keshi_src() -> SourceSpec {
+        SourceSpec {
+            id: "keshi".into(),
+            label: None,
+            file: "{monthDir}/课时.xlsx".into(),
+            sheet: "课时".into(),
+            header_row: 1,
+            parse: ParseSpec::default(),
+            columns: vec![
+                ColumnSpec {
+                    header: Some("姓名".into()),
+                    index: None,
+                    alias: "姓名".into(),
+                    value_type: ColumnType::Text,
+                    key: true,
+                    required: true,
+                    normalize: vec![],
+                },
+                ColumnSpec {
+                    header: Some("总计".into()),
+                    index: None,
+                    alias: "课时".into(),
+                    value_type: ColumnType::Decimal,
+                    key: false,
+                    required: false,
+                    normalize: vec![],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn reads_keshi_table() {
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../testdata/2023-09/课时.xlsx"
+        ));
+        let table = read_source_table(path, &keshi_src()).expect("应能读取课时表");
+        assert!(
+            table.row_count() > 50,
+            "应读到 50+ 行，实际 {}",
+            table.row_count()
+        );
+        let name_idx = table.column_index("姓名").expect("应有姓名列");
+        assert!(
+            table
+                .rows
+                .iter()
+                .any(|r| r.cells[name_idx] != CellValue::Blank),
+            "姓名列应有内容"
+        );
+    }
+}
