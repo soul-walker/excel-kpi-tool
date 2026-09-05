@@ -4,13 +4,18 @@
 use kpi_engine::runner::{RunOptions, run_scheme_outputs};
 use kpi_engine::scheme::VersionedScheme;
 
-/// 校验方案，返回 `{ ok, name?, issues }` 或 `{ ok:false, error }` 的 JSON 字符串。
+/// 校验方案（按路径读取文件），返回 `{ ok, name?, issues }` 或 `{ ok:false, error }` 的 JSON 字符串。
 pub fn validate_scheme_json(path: &str) -> String {
     let raw = match std::fs::read_to_string(path) {
         Ok(r) => r,
         Err(e) => return err_json(&format!("读取方案失败: {e}")),
     };
-    let versioned = match VersionedScheme::from_json_str(&raw) {
+    validate_scheme_json_text(&raw)
+}
+
+/// 校验方案文本（编辑器用：校验内存中尚未落盘的编辑内容）。
+pub fn validate_scheme_json_text(raw: &str) -> String {
+    let versioned = match VersionedScheme::from_json_str(raw) {
         Ok(v) => v,
         Err(e) => return err_json(&format!("方案解析失败: {e}")),
     };

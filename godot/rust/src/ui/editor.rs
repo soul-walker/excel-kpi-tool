@@ -556,14 +556,40 @@ pub fn on_validate_clicked(
     _trigger: On<EditorValidateClicked>,
     refs: Res<EditorRefs>,
     doc: Res<EditorDoc>,
+    rows: bevy::prelude::NonSend<ParamRows>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
-    let Some(path) = &doc.path else {
+    // 校验内存中的当前编辑状态（未保存的内容也生效），不读磁盘旧文件。
+    let Some(mut raw) = doc.raw.clone() else {
         log_err(nodes, &mut godot, "尚未载入方案");
         return;
     };
-    let json = bridge::validate_scheme_json(path);
+    let name_text = godot.get::<LineEdit>(nodes.name_edit).get_text();
+    let new_base = normalize_base(&name_text.to_string());
+    if new_base.is_empty() {
+        log_err(nodes, &mut godot, "校验中止：方案名称不能为空");
+        return;
+    }
+    raw["scheme"]["name"] = serde_json::Value::String(new_base);
+    let desc = godot
+        .get::<LineEdit>(nodes.desc_edit)
+        .get_text()
+        .to_string();
+    raw["scheme"]["description"] = serde_json::Value::String(desc);
+    // 参数行控件 → raw（与保存共用 write_params，含名称重复等检查）。
+    if let Err(err) = write_params(&mut raw, &rows) {
+        log_err(nodes, &mut godot, &format!("校验中止：{err}"));
+        return;
+    }
+    let text = match serde_json::to_string(&raw) {
+        Ok(t) => t,
+        Err(e) => {
+            log_err(nodes, &mut godot, &format!("校验中止：序列化失败 {e}"));
+            return;
+        }
+    };
+    let json = bridge::validate_scheme_json_text(&text);
     let out = bridge::render_result(&json);
     let kind = if out.ok { LogKind::Ok } else { LogKind::Err };
     log_kind(nodes, &mut godot, kind, &out.text);

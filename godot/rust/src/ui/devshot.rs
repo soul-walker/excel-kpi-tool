@@ -60,8 +60,6 @@ pub fn dev_shot_system(
     click_button(90, *frame, find("EditorNavBtn"), "切到方案编辑", &mut godot);
     // 新建方案（内存草稿，预填“未命名方案-<ts>”）
     click_button(120, *frame, find("NewBtn"), "新建方案", &mut godot);
-    // 未落盘时点校验 → 应输出红色“读取方案失败”
-    click_button(128, *frame, find("ValidateBtn"), "校验(期望红)", &mut godot);
     // 填名称/描述（随后保存将按“自检方案”改名落盘）
     if *frame == 125 {
         if let (Some(name), Some(desc)) = (find("NameEdit"), find("DescEdit")) {
@@ -102,6 +100,14 @@ pub fn dev_shot_system(
             warn!("KPI_SHOT: 参数行不足，跳过重复名设置");
         }
     }
+    // 校验（内存态存在重名 → 应红色报 参数名重复）
+    click_button(
+        180,
+        *frame,
+        find("ValidateBtn"),
+        "校验(期望红:重名)",
+        &mut godot,
+    );
     // 保存（应失败：参数名重复）
     click_button(185, *frame, find("SaveBtn"), "保存(期望失败)", &mut godot);
     // 把第 2 行名改回 参数1 → 再次保存应成功
