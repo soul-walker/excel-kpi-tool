@@ -27,6 +27,7 @@ use super::events::{
     ParamValueEdited,
 };
 use super::schemes;
+use super::sources::{self, ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{LogKind, log_line};
 
 /// 编辑器页面实体标记。
@@ -42,8 +43,14 @@ pub struct EditorNodes {
     pub name_edit: GodotNodeHandle,
     #[node("Margin/VBox/InfoBox/DescRow/DescEdit")]
     pub desc_edit: GodotNodeHandle,
-    #[node("Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll/ParamsBox")]
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsScroll/ParamsBox")]
     pub params_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesScroll/SourcesBox")]
+    pub sources_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow/ColsTitle")]
+    pub cols_title: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsScroll/ColsBox")]
+    pub cols_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,
 }
@@ -63,6 +70,8 @@ pub struct EditorDoc {
     pub base: Option<String>,
     /// 内存中的方案 JSON（含顶层 schema_version/scheme）。
     pub raw: Option<serde_json::Value>,
+    /// 数据源页签中当前选中编辑其列映射的数据源序号。
+    pub selected_source: i32,
 }
 
 /// 动态参数行控件（Gd 非 Send → NonSend）。
@@ -157,6 +166,8 @@ pub fn resolve_editor(
     mut refs: ResMut<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut godot: GodotAccess,
 ) {
     if refs.nodes.is_some() {
@@ -174,7 +185,14 @@ pub fn resolve_editor(
                     return;
                 };
                 populate_scheme_select(resolved, &mut godot, Some("复刻"));
-                load_current(resolved, &mut doc, &mut rows, &mut godot);
+                load_current(
+                    resolved,
+                    &mut doc,
+                    &mut rows,
+                    &mut src_rows,
+                    &mut col_rows,
+                    &mut godot,
+                );
                 return;
             }
             Err(_) => continue,
@@ -245,6 +263,8 @@ fn load_current(
     nodes: &EditorNodes,
     doc: &mut EditorDoc,
     rows: &mut ParamRows,
+    src_rows: &mut SrcRows,
+    col_rows: &mut SrcCols,
     godot: &mut GodotAccess,
 ) {
     let file_name = godot
@@ -289,6 +309,8 @@ fn load_current(
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);
     godot.get::<LineEdit>(nodes.desc_edit).set_text(&desc);
     render_param_rows(nodes, doc, rows, godot);
+    doc.selected_source = 0;
+    sources::render_all(nodes, doc, src_rows, col_rows, godot);
     log_ok(
         nodes,
         godot,
@@ -388,10 +410,19 @@ pub fn on_load_clicked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
-        load_current(nodes, &mut doc, &mut rows, &mut godot);
+        load_current(
+            nodes,
+            &mut doc,
+            &mut rows,
+            &mut src_rows,
+            &mut col_rows,
+            &mut godot,
+        );
     }
 }
 
@@ -400,10 +431,19 @@ pub fn on_scheme_picked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
-        load_current(nodes, &mut doc, &mut rows, &mut godot);
+        load_current(
+            nodes,
+            &mut doc,
+            &mut rows,
+            &mut src_rows,
+            &mut col_rows,
+            &mut godot,
+        );
     }
 }
 
@@ -412,6 +452,8 @@ pub fn on_new_scheme_clicked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -436,15 +478,17 @@ pub fn on_new_scheme_clicked(
     });
     doc.path = Some(schemes::scheme_path(&format!("{base}.json")));
     doc.base = Some(base.clone());
+    doc.selected_source = 0;
     doc.raw = Some(raw);
 
     godot.get::<LineEdit>(nodes.name_edit).set_text(&base);
     godot.get::<LineEdit>(nodes.desc_edit).set_text("");
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
+    sources::render_all(nodes, &doc, &mut src_rows, &mut col_rows, &mut godot);
     log_ok(
         nodes,
         &mut godot,
-        "已新建（未保存）：填写名称/描述与参数后点「保存」落盘",
+        "已新建（未保存）：填写名称/描述/参数/数据源后点「保存」落盘",
     );
 }
 
@@ -557,6 +601,8 @@ pub fn on_validate_clicked(
     refs: Res<EditorRefs>,
     doc: Res<EditorDoc>,
     rows: bevy::prelude::NonSend<ParamRows>,
+    src_rows: bevy::prelude::NonSend<SrcRows>,
+    col_rows: bevy::prelude::NonSend<SrcCols>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -582,6 +628,11 @@ pub fn on_validate_clicked(
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
+    // 数据源与列映射控件 → raw。
+    if let Err(err) = sources::write_back(&mut raw, &src_rows, &col_rows, doc.selected_source) {
+        log_err(nodes, &mut godot, &format!("校验中止：{err}"));
+        return;
+    }
     let text = match serde_json::to_string(&raw) {
         Ok(t) => t,
         Err(e) => {
@@ -600,6 +651,8 @@ pub fn on_save_clicked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     rows: bevy::prelude::NonSend<ParamRows>,
+    src_rows: bevy::prelude::NonSend<SrcRows>,
+    col_rows: bevy::prelude::NonSend<SrcCols>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -631,6 +684,11 @@ pub fn on_save_clicked(
         raw["scheme"]["name"] = serde_json::Value::String(new_base.clone());
     }
     if let Err(err) = write_params(&mut raw, &rows) {
+        log_err(nodes, &mut godot, &format!("保存失败：{err}"));
+        return;
+    }
+    // 数据源与列映射控件 → raw。
+    if let Err(err) = sources::write_back(&mut raw, &src_rows, &col_rows, doc.selected_source) {
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }

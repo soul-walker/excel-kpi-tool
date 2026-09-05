@@ -9,10 +9,11 @@ use tracing::{info, warn};
 
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
-    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RunClicked,
-    ShowEditorPage, ShowRunPage, ValidateClicked,
+    AddColClicked, AddSourceClicked, BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked,
+    EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
+    MonthDirPicked, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
 };
+use super::sources::{ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{UiHost, UiRefs};
 
 /// 内容宿主（main.tscn 的 Content 节点），页面场景都挂到这里。
@@ -40,6 +41,8 @@ pub fn setup_router(
     mut editor_refs: ResMut<EditorRefs>,
     mut editor_doc: ResMut<EditorDoc>,
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
 ) {
     for (handle, name) in &nodes {
         match name.as_str() {
@@ -60,6 +63,8 @@ pub fn setup_router(
     editor_doc.base = None;
     editor_doc.raw = None;
     param_rows.clear();
+    src_rows.clear();
+    col_rows.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -77,6 +82,7 @@ pub fn on_show_run_page(
 }
 
 /// 顶栏“方案编辑”被点击 → 显示方案编辑器页。
+#[allow(clippy::too_many_arguments)]
 pub fn on_show_editor_page(
     _trigger: On<ShowEditorPage>,
     mut commands: Commands,
@@ -85,6 +91,8 @@ pub fn on_show_editor_page(
     mut editor_refs: ResMut<EditorRefs>,
     mut editor_doc: ResMut<EditorDoc>,
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
+    mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
 ) {
     info!("导航：方案编辑");
     editor_refs.nodes = None;
@@ -92,6 +100,8 @@ pub fn on_show_editor_page(
     editor_doc.base = None;
     editor_doc.raw = None;
     param_rows.clear();
+    src_rows.clear();
+    col_rows.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
 
@@ -180,9 +190,19 @@ fn spawn_editor_page(
             |_args, _node, _entity| Some(EditorValidateClicked),
         )
         .with_signal_connection(
-            "Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow/AddParamBtn",
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow/AddParamBtn",
             "pressed",
             |_args, _node, _entity| Some(EditorAddParamClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow/AddSourceBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddSourceClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow/AddColBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddColClicked),
         );
     let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);

@@ -3,7 +3,8 @@
 //! - `events`：按钮/导航 typed 事件；
 //! - `view`：类型化节点视图（NodeTreeView）与句柄资源；
 //! - `schemes`：用户方案库（user://schemes）位置与播种；
-//! - `editor`：方案编辑器（v0：参数编辑/保存/校验）；
+//! - `editor`：方案编辑器（参数编辑/保存/校验）；
+//! - `sources`：编辑器数据源/列映射页签；
 //! - `nav`：主场景路由（顶栏导航 → 页面场景的生成/切换）；
 //! - `setup`：运行台场景节点句柄解析与初始化；
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
@@ -16,13 +17,15 @@ pub mod handlers;
 pub mod nav;
 pub mod schemes;
 pub mod setup;
+pub mod sources;
 pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
-    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked,
-    ParamRemoveClicked, ParamTypeChosen, ParamValueEdited, RunClicked, ShowEditorPage, ShowRunPage,
+    AddColClicked, AddSourceClicked, BrowseMonthClicked, ColRemoveClicked, EditorAddParamClicked,
+    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
+    EditorValidateClicked, MonthDirPicked, ParamRemoveClicked, ParamTypeChosen, ParamValueEdited,
+    RunClicked, ShowEditorPage, ShowRunPage, SourceColsClicked, SourceRemoveClicked,
     ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
@@ -48,7 +51,12 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<EditorAddParamClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ParamRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ParamValueEdited>::default())
-            .add_plugins(GodotSignalsPlugin::<ParamTypeChosen>::default());
+            .add_plugins(GodotSignalsPlugin::<ParamTypeChosen>::default())
+            .add_plugins(GodotSignalsPlugin::<AddSourceClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<SourceRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<SourceColsClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddColClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<ColRemoveClicked>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<editor::EditorRefs>();
@@ -56,6 +64,8 @@ impl Plugin for UiPlugin {
         app.init_resource::<nav::ContentHost>();
         app.init_resource::<nav::ActivePage>();
         app.insert_non_send_resource(editor::ParamRows::default());
+        app.insert_non_send_resource(sources::SourceRows::default());
+        app.insert_non_send_resource(sources::ColRows::default());
 
         app.add_systems(bevy::prelude::Startup, nav::setup_router);
         app.add_systems(
@@ -64,6 +74,7 @@ impl Plugin for UiPlugin {
                 setup::resolve_ui_refs,
                 editor::resolve_editor,
                 editor::connect_param_signals,
+                sources::connect_sources_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -81,6 +92,11 @@ impl Plugin for UiPlugin {
         app.add_observer(editor::on_remove_param);
         app.add_observer(editor::on_value_edited);
         app.add_observer(editor::on_type_chosen);
+        app.add_observer(sources::on_add_source);
+        app.add_observer(sources::on_remove_source);
+        app.add_observer(sources::on_source_cols);
+        app.add_observer(sources::on_add_col);
+        app.add_observer(sources::on_remove_col);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
     }

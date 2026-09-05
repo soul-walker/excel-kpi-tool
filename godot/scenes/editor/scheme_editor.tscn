@@ -52,11 +52,6 @@ text = "保存"
 layout_mode = 2
 text = "校验"
 
-[node name="MetaLabel" type="Label" parent="Margin/VBox"]
-layout_mode = 2
-autowrap_mode = 2
-text = "（未载入方案）"
-
 [node name="InfoBox" type="VBoxContainer" parent="Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
@@ -95,33 +90,96 @@ layout_mode = 2
 size_flags_vertical = 3
 split_offset = 660
 
-[node name="ParamsPanel" type="PanelContainer" parent="Margin/VBox/Split"]
+[node name="LeftPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2
 
-[node name="ParamsVBox" type="VBoxContainer" parent="Margin/VBox/Split/ParamsPanel"]
+[node name="LeftVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ParamsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox"]
+[node name="Tabs" type="TabContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="参数" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ParamsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数"]
 layout_mode = 2
 
-[node name="ParamsTitle" type="Label" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
+[node name="ParamsTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
 layout_mode = 2
 text = "参数（默认整数，填值自动识别类型；可手动指定，保存后写回）"
 size_flags_horizontal = 3
 
-[node name="AddParamBtn" type="Button" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsTitleRow"]
+[node name="AddParamBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
 layout_mode = 2
 text = "+ 新增参数"
 
-[node name="ParamsScroll" type="ScrollContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox"]
+[node name="ParamsScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="ParamsBox" type="VBoxContainer" parent="Margin/VBox/Split/ParamsPanel/ParamsVBox/ParamsScroll"]
+[node name="ParamsBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 4
+
+[node name="数据源" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SourcesTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
+layout_mode = 2
+
+[node name="SourcesHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
+layout_mode = 2
+text = "数据源（Excel 台账）：行一为源信息，点「列映射」编辑该源的读取列"
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddSourceBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
+layout_mode = 2
+text = "+ 新增数据源"
+
+[node name="SourcesScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SourcesBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="ColsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
+layout_mode = 2
+
+[node name="ColsTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow"]
+layout_mode = 2
+text = "列映射"
+size_flags_horizontal = 3
+
+[node name="AddColBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow"]
+layout_mode = 2
+text = "+ 新增列"
+
+[node name="ColsScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ColsBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="后续" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+
+[node name="PlanHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/后续"]
+layout_mode = 2
+autowrap_mode = 2
+text = "派生明细 / 聚合指标 / 计算分组 / 输出 编辑：后续迭代"
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

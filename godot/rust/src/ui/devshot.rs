@@ -6,7 +6,7 @@
 //! 185 保存（应报参数名重复）→ 195 第 2 行名恢复 → 210 保存成功 → 300 截图退出。
 
 use bevy::prelude::{Local, Name, NonSend, Query, Res};
-use godot::classes::{Button, Control, LineEdit, ProjectSettings};
+use godot::classes::{Button, Control, LineEdit, ProjectSettings, TabContainer};
 use godot::obj::Singleton;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle};
 use tracing::{info, warn};
@@ -118,6 +118,18 @@ pub fn dev_shot_system(
     click_button(210, *frame, find("SaveBtn"), "保存", &mut godot);
     // 保存后再校验 → 应输出绿色“校验通过”
     click_button(225, *frame, find("ValidateBtn"), "校验(期望绿)", &mut godot);
+
+    // —— 数据源页签：切到“数据源”，新增数据源与列，再保存 ——
+    if *frame == 232
+        && let Some(tabs) = find("Tabs")
+    {
+        godot.get::<TabContainer>(tabs).set_current_tab(1);
+        info!("KPI_SHOT: 已切到数据源页签");
+    }
+    click_button(235, *frame, find("AddSourceBtn"), "新增数据源", &mut godot);
+    click_button(240, *frame, find("AddColBtn"), "新增列", &mut godot);
+    // 保存（把数据源/列映射写入文件）
+    click_button(248, *frame, find("SaveBtn"), "保存(含数据源)", &mut godot);
 
     if *frame == 300
         && let Some(handle) = find("AppTitle")

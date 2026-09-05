@@ -71,3 +71,29 @@ pub(crate) struct ParamValueEdited {
 pub(crate) struct ParamTypeChosen {
     pub index: i32,
 }
+
+/// 编辑器：“+ 新增数据源”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddSourceClicked;
+
+/// 编辑器：删除第 index 个数据源。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct SourceRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：选中第 index 个数据源（“列映射”按钮）编辑其列。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct SourceColsClicked {
+    pub index: i32,
+}
+
+/// 编辑器：给当前选中的数据源“+ 新增列”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddColClicked;
+
+/// 编辑器：删除当前数据源的第 index 列。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ColRemoveClicked {
+    pub index: i32,
+}
