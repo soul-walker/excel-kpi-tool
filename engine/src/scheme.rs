@@ -188,13 +188,31 @@ pub enum ColumnType {
     Date,
 }
 
-/// 派生明细：对源表做行过滤→字段映射→分组聚合，得到仍带 key 的新明细。
+/// 主从续行合并（行视图算子，挂在 DerivedSpec.merge）。
+///
+/// 同一份物理文件只应声明一次为数据源（sources）；需要“逐物理行”与
+/// “续行并入主记录”两种视角时，把后者表达为派生视图：
+/// `from` 指向含续行的表，`on` 为“续列”（这些列为空的物理行并入上一条主记录）。
+/// 合并规则：数值列求和；文本列以“、”追加（去重）；fill_down/续列本身保持主记录值。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MergeSpec {
+    /// 续列（按 alias）：这些列全为空的物理行并入上一条记录。
+    #[serde(default)]
+    pub on: Vec<String>,
+}
+
+/// 派生明细（表视图）：先做行整理（主从合并），再做过滤 → 字段映射 → 分组聚合，
+/// 得到仍带 key 的新明细。`from` 可引用 source 或先前 derived（视图可链式叠加）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DerivedSpec {
     pub id: String,
-    /// 来源 source / derived / aggregate 的 id。
+    /// 来源 source / derived 的 id。
     pub from: String,
+    /// 可选：主从续行合并（见 MergeSpec）。
+    #[serde(default)]
+    pub merge: Option<MergeSpec>,
     /// 行过滤表达式（空 = 全部行）。
     #[serde(default)]
     pub when: Option<String>,
@@ -423,6 +441,27 @@ impl Scheme {
             "outputs",
             self.outputs.iter().map(|o| o.id.as_str()),
         );
+
+        // —— 数据源：同文件+同 sheet+同解析 只声明一次；不同解析视角建议用 derived 视图 ——
+        // 兼容旧方案（continue_record_on 源级解析仍可用），因此仅拦截完全相同的重复声明。
+        let mut seen_filesheet: Vec<(String, String, String)> = Vec::new();
+        for src in &self.sources {
+            let key = (
+                src.file.clone(),
+                src.sheet.clone(),
+                src.parse.continue_record_on.join(","),
+            );
+            if let Some((f, s, _)) = seen_filesheet
+                .iter()
+                .find(|k| k.0 == key.0 && k.1 == key.1 && k.2 == key.2)
+            {
+                out.push(Issue::error(
+                    format!("sources.{}", src.id),
+                    format!("与数据源 {f} 重复声明（同一文件 {s} 且解析相同）；不同视角请用 derived 视图"),
+                ));
+            }
+            seen_filesheet.push(key);
+        }
 
         // —— 数据源列 ——
         for src in &self.sources {

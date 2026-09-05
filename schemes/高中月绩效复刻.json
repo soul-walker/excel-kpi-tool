@@ -61,20 +61,6 @@
         ]
       },
       {
-        "id": "qingjia_jl",
-        "file": "请假替上课.xlsx",
-        "sheet": "请假替上课",
-        "header_row": 1,
-        "parse": { "fill_down": ["姓名"], "continue_record_on": ["天数"] },
-        "columns": [
-          { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
-          { "header": "类型", "alias": "类型", "value_type": "text" },
-          { "header": "天数", "alias": "天数", "value_type": "decimal", "bits": 32 },
-          { "header": "替上课老师", "alias": "替上课老师", "value_type": "text" },
-          { "header": "节数", "alias": "节数", "value_type": "integer" }
-        ]
-      },
-      {
         "id": "zaodu",
         "file": "早读.xlsx",
         "sheet": "早读",
@@ -109,6 +95,11 @@
       }
     ],
     "derived": [
+      {
+        "id": "qingjia_jl",
+        "from": "qingjia",
+        "merge": { "on": ["天数"] }
+      },
       {
         "id": "bukesh",
         "from": "qingjia",

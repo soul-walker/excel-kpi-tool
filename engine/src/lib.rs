@@ -27,9 +27,9 @@ pub use reader::{LocatedSheet, cell_ref, col_letters, locate_sheet, normalize_ke
 pub use runner::{OutputOutcome, RunOptions, RunSummary, run_scheme_outputs};
 pub use scheme::{
     AggregateSpec, ApplyMode, BlankBehavior, ColumnSpec, ColumnType, DerivedSpec, DuplicatePolicy,
-    EntitySpec, FieldExpr, GroupSheetRef, GroupSpec, Issue, NewColumn, NewFileOutput, OutputKind,
-    OutputSpec, ParamValue, Parameter, ParseSpec, PatchColumn, PatchTemplate, SCHEMA_VERSION,
-    Scheme, Severity, SourceSpec, VersionedScheme,
+    EntitySpec, FieldExpr, GroupSheetRef, GroupSpec, Issue, MergeSpec, NewColumn, NewFileOutput,
+    OutputKind, OutputSpec, ParamValue, Parameter, ParseSpec, PatchColumn, PatchTemplate,
+    SCHEMA_VERSION, Scheme, Severity, SourceSpec, VersionedScheme,
 };
 pub use table::{CellValue, Column, Table};
 pub use template::{SheetEdit, patch_workbook};

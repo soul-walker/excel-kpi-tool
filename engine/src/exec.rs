@@ -1,8 +1,9 @@
 //! exec：方案执行器内核（M1-1.3 起点）。
 //!
-//! 当前范围：把 scheme 的 sources 读成规整表，并执行 **derived（派生明细）**：
-//!   行过滤(when) → 列重映射(map) → 按 group_by 分组 → 计算 fields（支持聚合表达式）。
-//! 下一步再接 aggregates（按人聚合）与 groups 字段求值 / outputs。
+//! 数据流：sources（物理表，文件唯一）→ derived（表视图，可链式）→
+//! aggregates（按 key 聚合）/ groups（字段求值）/ outputs。
+//! derived 视图变换顺序：主从合并(merge) → 行过滤(when) → 重映射/透传(map)
+//! → 按 group_by 分组计算 fields（或逐行字段 / 纯行视图透传）。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -50,8 +51,9 @@ pub fn run_scheme(scheme: &Scheme, dir: &Path) -> Result<SchemeRun> {
 
     let mut derived_tables = HashMap::new();
     for d in &scheme.derived {
+        let cols = cols_for(&d.from, &source_tables, &derived_tables)?;
         let rows = rows_for(&d.from, &source_tables, &derived_tables)?;
-        let table = compute_derived(d, &rows)?;
+        let table = compute_derived(d, &cols, &rows)?;
         derived_tables.insert(d.id.clone(), table);
     }
 
@@ -59,6 +61,21 @@ pub fn run_scheme(scheme: &Scheme, dir: &Path) -> Result<SchemeRun> {
         source_tables,
         derived_tables,
     })
+}
+
+/// 来源表的列 alias（顺序）。
+fn cols_for(
+    id: &str,
+    sources: &HashMap<String, Table>,
+    derived: &HashMap<String, DerivedTable>,
+) -> Result<Vec<String>> {
+    if let Some(t) = sources.get(id) {
+        return Ok(t.columns.iter().map(|c| c.alias.clone()).collect());
+    }
+    if let Some(d) = derived.get(id) {
+        return Ok(d.columns.clone());
+    }
+    Err(Error::Runtime(format!("引用不存在的表: {id}")))
 }
 
 fn rows_for(
@@ -109,8 +126,19 @@ fn value_key(v: &Value) -> String {
     }
 }
 
-/// 执行派生：过滤 → 重映射 → 分组 → 字段计算。
-pub fn compute_derived(spec: &DerivedSpec, in_rows: &[CalcRow]) -> Result<DerivedTable> {
+/// 执行派生（表视图）：主从合并 → 行过滤 → 重映射/透传 → 分组或逐行字段。
+/// 无 map/group/fields 的纯行视图（如仅 merge）直接透传 in_cols 与原行。
+pub fn compute_derived(
+    spec: &DerivedSpec,
+    in_cols: &[String],
+    in_rows: &[CalcRow],
+) -> Result<DerivedTable> {
+    // 0) 主从合并：续列全空的续行并入上一条主记录（保留原列）。
+    let base: Vec<CalcRow> = match &spec.merge {
+        Some(m) => merge_continuations(in_rows, &m.on)?,
+        None => in_rows.to_vec(),
+    };
+
     // 1) 过滤
     let when_node = spec
         .when
@@ -118,11 +146,11 @@ pub fn compute_derived(spec: &DerivedSpec, in_rows: &[CalcRow]) -> Result<Derive
         .map(calc::parse)
         .transpose()
         .map_err(|e| Error::Runtime(format!("derived.{} when 解析失败: {e}", spec.id)))?;
-    let mut rows: Vec<CalcRow> = Vec::new();
-    for r in in_rows {
+    let mut rows: Vec<CalcRow> = Vec::with_capacity(base.len());
+    for r in base {
         let keep = match &when_node {
             Some(n) => {
-                let v = calc::eval_on_row(n, &|_| None, r).map_err(|e| {
+                let v = calc::eval_on_row(n, &|_| None, &r).map_err(|e| {
                     Error::Runtime(format!("derived.{} when 求值失败: {e}", spec.id))
                 })?;
                 matches!(v, Value::Bool(true)) || matches!(v, Value::Num(x) if x != 0.0)
@@ -130,27 +158,30 @@ pub fn compute_derived(spec: &DerivedSpec, in_rows: &[CalcRow]) -> Result<Derive
             None => true,
         };
         if keep {
-            rows.push(r.clone());
+            rows.push(r);
         }
     }
 
-    // 2) 重映射：目标 alias ← 源列 alias
-    let mut mapped: Vec<CalcRow> = Vec::new();
-    for r in &rows {
-        let mut m = CalcRow::new();
-        for (to, from) in &spec.map {
-            let v = r.get(from).cloned().unwrap_or(Value::Empty);
-            m.insert(to.clone(), v);
-        }
-        mapped.push(m);
-    }
+    // 2) 重映射：目标 alias ← 源列 alias（map 为空则透传整行）
+    let mapped: Vec<CalcRow> = if spec.map.is_empty() {
+        rows
+    } else {
+        rows.into_iter()
+            .map(|r| {
+                let mut m = CalcRow::new();
+                for (to, from) in &spec.map {
+                    let v = r.get(from).cloned().unwrap_or(Value::Empty);
+                    m.insert(to.clone(), v);
+                }
+                m
+            })
+            .collect()
+    };
 
-    // 3) 分组 + 字段
-    let mut out_rows: Vec<CalcRow> = Vec::new();
-    let group_key = spec.group_by.clone();
+    // 3) 分组聚合 / 逐行字段 / 行视图透传
     let compute = |group_rows: &[CalcRow]| -> Result<CalcRow> {
         let mut out = CalcRow::new();
-        if let Some(gb) = &group_key
+        if let Some(gb) = &spec.group_by
             && let Some(first) = group_rows.first()
         {
             out.insert(gb.clone(), first.get(gb).cloned().unwrap_or(Value::Empty));
@@ -170,32 +201,94 @@ pub fn compute_derived(spec: &DerivedSpec, in_rows: &[CalcRow]) -> Result<Derive
         Ok(out)
     };
 
-    if let Some(gb) = &group_key {
+    if let Some(gb) = &spec.group_by {
         let mut groups: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
         for r in &mapped {
             let k = value_key(r.get(gb).unwrap_or(&Value::Empty));
             groups.entry(k).or_default().push(r.clone());
         }
+        let mut out_rows = Vec::with_capacity(groups.len());
         for (_k, g) in groups {
             out_rows.push(compute(&g)?);
         }
-    } else {
+        let mut columns = vec![gb.clone()];
+        columns.extend(spec.fields.iter().map(|f| f.name.clone()));
+        return Ok(DerivedTable {
+            columns,
+            rows: out_rows,
+        });
+    }
+    if !spec.fields.is_empty() {
+        let mut out_rows = Vec::with_capacity(mapped.len());
         for r in &mapped {
             out_rows.push(compute(std::slice::from_ref(r))?);
         }
+        let columns: Vec<String> = spec.fields.iter().map(|f| f.name.clone()).collect();
+        return Ok(DerivedTable {
+            columns,
+            rows: out_rows,
+        });
     }
 
-    // 4) 列顺序：group 列 + 计算字段
-    let mut columns = Vec::new();
-    if let Some(gb) = &group_key {
-        columns.push(gb.clone());
-    }
-    columns.extend(spec.fields.iter().map(|f| f.name.clone()));
-
+    // 行视图（仅 merge / when / map）：列 = 映射目标或输入列
+    let columns: Vec<String> = if spec.map.is_empty() {
+        in_cols.to_vec()
+    } else {
+        spec.map.keys().cloned().collect()
+    };
     Ok(DerivedTable {
         columns,
-        rows: out_rows,
+        rows: mapped,
     })
+}
+
+/// 主从续行合并：`on` 列全空的物理行并入上一条主记录。
+/// 与读取期的源级 `continue_record_on` 语义一致：数值求和、文本以“、”追加去重，
+/// 续列本身与空值保持主记录值。
+fn merge_continuations(rows: &[CalcRow], on: &[String]) -> Result<Vec<CalcRow>> {
+    if on.is_empty() {
+        return Ok(rows.to_vec());
+    }
+    let mut merged: Vec<CalcRow> = Vec::with_capacity(rows.len());
+    for row in rows {
+        // 主记录：续列全非空；续列全空的行并入上一条主记录。
+        let is_lead = on.iter().all(|k| !value_blank(row.get(k)));
+        if is_lead || merged.is_empty() {
+            merged.push(row.clone());
+        } else if let Some(last) = merged.last_mut() {
+            for (k, v) in row {
+                if on.iter().any(|c| c == k) || value_blank(Some(v)) {
+                    continue;
+                }
+                if let Some(target) = last.get_mut(k) {
+                    merge_value_into(target, v);
+                } else {
+                    last.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    Ok(merged)
+}
+
+fn value_blank(v: Option<&Value>) -> bool {
+    matches!(v, None | Some(Value::Empty))
+}
+
+fn merge_value_into(target: &mut Value, extra: &Value) {
+    match (&*target, extra) {
+        (Value::Empty, _) => *target = extra.clone(),
+        (Value::Num(a), Value::Num(b)) => *target = Value::Num(a + b),
+        (Value::Str(a), Value::Str(b)) if !a.contains(b.as_str()) => {
+            let mut s = a.clone();
+            if !s.is_empty() {
+                s.push('、');
+            }
+            s.push_str(b);
+            *target = Value::Str(s);
+        }
+        _ => {}
+    }
 }
 
 fn eval_field(node: &Node, group_rows: &[CalcRow], comp: &HashMap<String, Value>) -> Result<Value> {
@@ -616,6 +709,7 @@ mod tests {
         DerivedSpec {
             id: "bukeshi_agg".into(),
             from: "qingjia".into(),
+            merge: None,
             when: Some("替上课老师 != ''".into()),
             map: BTreeMap::from([
                 ("姓名".to_string(), "替上课老师".to_string()),
@@ -1038,5 +1132,58 @@ mod tests {
             assert_eq!(gj, wj, "{name} 节数不一致");
             assert_eq!(gf, wf, "{name} 费用不一致");
         }
+    }
+
+    #[test]
+    fn merge_view_combines_continuation_rows() {
+        use std::collections::HashMap;
+        let lead = HashMap::from([
+            ("姓名".to_string(), Value::Str("张".into())),
+            ("类型".to_string(), Value::Str("事".into())),
+            ("天数".to_string(), Value::Num(2.0)),
+            ("节数".to_string(), Value::Num(0.0)),
+        ]);
+        let cont = HashMap::from([
+            ("姓名".to_string(), Value::Str("张".into())),
+            ("天数".to_string(), Value::Empty),
+            ("节数".to_string(), Value::Num(3.0)),
+        ]);
+        let cont2 = HashMap::from([
+            ("姓名".to_string(), Value::Str("张".into())),
+            ("天数".to_string(), Value::Empty),
+            ("节数".to_string(), Value::Num(2.0)),
+        ]);
+        let next_lead = HashMap::from([
+            ("姓名".to_string(), Value::Str("李".into())),
+            ("类型".to_string(), Value::Str("病".into())),
+            ("天数".to_string(), Value::Num(1.0)),
+            ("节数".to_string(), Value::Num(0.0)),
+        ]);
+        let rows = vec![lead, cont, cont2, next_lead];
+        let spec = DerivedSpec {
+            id: "view".into(),
+            from: "x".into(),
+            merge: Some(crate::scheme::MergeSpec {
+                on: vec!["天数".into()],
+            }),
+            when: None,
+            map: BTreeMap::new(),
+            group_by: None,
+            fields: vec![],
+        };
+        let cols = vec![
+            "姓名".to_string(),
+            "类型".to_string(),
+            "天数".to_string(),
+            "节数".to_string(),
+        ];
+        let table = compute_derived(&spec, &cols, &rows).expect("merge 派生失败");
+        // 前两行续行并入主记录 → 2 条记录
+        assert_eq!(table.rows.len(), 2);
+        let first = &table.rows[0];
+        assert_eq!(first.get("天数"), Some(&Value::Num(2.0)));
+        assert_eq!(first.get("节数"), Some(&Value::Num(5.0)));
+        // 行视图透传原始列
+        assert_eq!(table.columns, cols);
     }
 }
