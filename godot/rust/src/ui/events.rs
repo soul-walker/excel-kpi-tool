@@ -59,3 +59,15 @@ pub(crate) struct EditorAddParamClicked;
 pub(crate) struct ParamRemoveClicked {
     pub index: i32,
 }
+
+/// 编辑器：参数值输入变化（用于自动推断类型）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ParamValueEdited {
+    pub index: i32,
+}
+
+/// 编辑器：参数类型被手动选择（锁定为该行类型，不再自动推断）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ParamTypeChosen {
+    pub index: i32,
+}

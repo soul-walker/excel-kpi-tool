@@ -22,7 +22,8 @@ use bevy::app::{App, Plugin};
 use events::{
     BrowseMonthClicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
     EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked,
-    ParamRemoveClicked, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
+    ParamRemoveClicked, ParamTypeChosen, ParamValueEdited, RunClicked, ShowEditorPage, ShowRunPage,
+    ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
@@ -45,7 +46,9 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<EditorValidateClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorNewSchemeClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorAddParamClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<ParamRemoveClicked>::default());
+            .add_plugins(GodotSignalsPlugin::<ParamRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<ParamValueEdited>::default())
+            .add_plugins(GodotSignalsPlugin::<ParamTypeChosen>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<editor::EditorRefs>();
@@ -60,7 +63,7 @@ impl Plugin for UiPlugin {
             (
                 setup::resolve_ui_refs,
                 editor::resolve_editor,
-                editor::connect_remove_buttons,
+                editor::connect_param_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -76,6 +79,8 @@ impl Plugin for UiPlugin {
         app.add_observer(editor::on_new_scheme_clicked);
         app.add_observer(editor::on_add_param_clicked);
         app.add_observer(editor::on_remove_param);
+        app.add_observer(editor::on_value_edited);
+        app.add_observer(editor::on_type_chosen);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
     }

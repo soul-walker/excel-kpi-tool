@@ -23,7 +23,8 @@ use crate::bridge;
 
 use super::events::{
     EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
-    EditorSchemePicked, EditorValidateClicked, ParamRemoveClicked,
+    EditorSchemePicked, EditorValidateClicked, ParamRemoveClicked, ParamTypeChosen,
+    ParamValueEdited,
 };
 use super::schemes;
 
@@ -74,8 +75,14 @@ pub struct ParamRows {
     pub value_edits: Vec<Gd<LineEdit>>,
     /// 每行删除按钮：(参数序号, 按钮)。
     pub remove_buttons: Vec<(i32, Gd<Button>)>,
-    /// 已连接的删除按钮数。
+    /// 已连接删除按钮数。
     pub connected: usize,
+    /// 已连接值输入框数（text_changed）。
+    pub value_connected: usize,
+    /// 已连接类型下拉数（item_selected）。
+    pub type_connected: usize,
+    /// 类型是否被用户手动锁定（锁定后不再随值自动推断）。
+    pub type_locked: Vec<bool>,
 }
 
 impl ParamRows {
@@ -86,6 +93,9 @@ impl ParamRows {
         self.value_edits.clear();
         self.remove_buttons.clear();
         self.connected = 0;
+        self.value_connected = 0;
+        self.type_connected = 0;
+        self.type_locked.clear();
     }
 }
 
@@ -96,6 +106,9 @@ const PARAM_TYPES: [(&str, &str); 4] = [
     ("decimal", "小数"),
     ("boolean", "布尔"),
 ];
+
+/// 新参数默认类型：整数（多数参数是数量/上限类）。
+const DEFAULT_TYPE: &str = "integer";
 
 fn type_item_index(ty: &str) -> i32 {
     PARAM_TYPES
@@ -108,6 +121,25 @@ fn type_key(item: i32) -> &'static str {
     PARAM_TYPES
         .get(item as usize)
         .map_or("text", |(key, _)| *key)
+}
+
+/// 依据值推断类型：整数 → integer；小数 → decimal；是/否/true/false → boolean；
+/// 其余非空文本 → text；空白 → None（不改动当前选择）。
+fn infer_type(value: &str) -> Option<&'static str> {
+    let t = value.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if matches!(t, "true" | "false" | "是" | "否") {
+        return Some("boolean");
+    }
+    if t.parse::<i64>().is_ok() {
+        return Some("integer");
+    }
+    if t.parse::<f64>().is_ok() {
+        return Some("decimal");
+    }
+    Some("text")
 }
 
 /// 名称 → 文件基名：去首尾空白、去 .json 后缀与末尾点。
@@ -149,15 +181,36 @@ pub fn resolve_editor(
     }
 }
 
-/// 动态删除按钮的 typed 连接（每帧补连未连接的按钮）。
-pub fn connect_remove_buttons(
+/// 动态控件的 typed 连接（每帧补连新出现的行控件）：
+/// 值输入框 text_changed → 自动推断类型；类型下拉 item_selected → 锁定；删除按钮 pressed。
+pub fn connect_param_signals(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
-    signals: GodotSignals<ParamRemoveClicked>,
+    value_signals: GodotSignals<ParamValueEdited>,
+    type_signals: GodotSignals<ParamTypeChosen>,
+    remove_signals: GodotSignals<ParamRemoveClicked>,
 ) {
+    while rows.value_connected < rows.value_edits.len() {
+        let index = rows.value_connected as i32;
+        let handle =
+            GodotNodeHandle::from_instance_id(rows.value_edits[rows.value_connected].instance_id());
+        value_signals.connect(handle, "text_changed", None, move |_a, _n, _e| {
+            Some(ParamValueEdited { index })
+        });
+        rows.value_connected += 1;
+    }
+    while rows.type_connected < rows.type_buttons.len() {
+        let index = rows.type_connected as i32;
+        let handle =
+            GodotNodeHandle::from_instance_id(rows.type_buttons[rows.type_connected].instance_id());
+        type_signals.connect(handle, "item_selected", None, move |_a, _n, _e| {
+            Some(ParamTypeChosen { index })
+        });
+        rows.type_connected += 1;
+    }
     while rows.connected < rows.remove_buttons.len() {
         let (index, button) = rows.remove_buttons[rows.connected].clone();
         let handle = GodotNodeHandle::from_instance_id(button.instance_id());
-        signals.connect(handle, "pressed", None, move |_a, _n, _e| {
+        remove_signals.connect(handle, "pressed", None, move |_a, _n, _e| {
             Some(ParamRemoveClicked { index })
         });
         rows.connected += 1;
@@ -270,7 +323,7 @@ fn render_param_rows(
     if params.is_empty() {
         let mut hint = Label::new_alloc();
         hint.set_name("ParamEmptyHint");
-        hint.set_text("暂无参数：点上方「+ 新增参数」添加（名称 / 类型 / 值都可编辑）");
+        hint.set_text("暂无参数：点上方「+ 新增参数」添加（类型默认整数，输入值可自动识别）");
         hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
         box_node.add_child(&hint);
         return;
@@ -305,7 +358,7 @@ fn render_param_rows(
         type_btn.select(type_item_index(ptype));
         row.add_child(&type_btn);
 
-        // 值（可编辑，扩展占满剩余宽度）
+        // 值（可编辑，扩展占满剩余宽度；输入变化自动识别类型，见 on_value_edited）
         let mut value_edit = LineEdit::new_alloc();
         value_edit.set_text(&value);
         value_edit.set_placeholder("参数值");
@@ -323,6 +376,7 @@ fn render_param_rows(
         rows.type_buttons.push(type_btn);
         rows.value_edits.push(value_edit);
         rows.remove_buttons.push((i as i32, remove));
+        rows.type_locked.push(false);
     }
 }
 
@@ -417,14 +471,17 @@ pub fn on_add_param_clicked(
     let idx = params.len();
     params.push(serde_json::json!({
         "name": format!("参数{idx}"),
-        "value_type": "text",
+        "value_type": DEFAULT_TYPE,
         "value": ""
     }));
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
     log(
         nodes,
         &mut godot,
-        &format!("已新增参数（共 {} 个）", idx + 1),
+        &format!(
+            "已新增参数（共 {} 个，默认整数，填值后自动识别类型）",
+            idx + 1
+        ),
     );
 }
 
@@ -461,6 +518,37 @@ pub fn on_remove_param(
         &mut godot,
         &format!("已删除参数 [{idx}]：{removed_name}"),
     );
+}
+
+pub fn on_value_edited(trigger: On<ParamValueEdited>, rows: bevy::prelude::NonSendMut<ParamRows>) {
+    let index = trigger.event().index as usize;
+    if index >= rows.value_edits.len() || index >= rows.type_buttons.len() {
+        return;
+    }
+    // 类型被手动锁定后不再自动推断。
+    if rows.type_locked.get(index).copied().unwrap_or(true) {
+        return;
+    }
+    let value = rows.value_edits[index].get_text();
+    let Some(ty) = infer_type(&value.to_string()) else {
+        return; // 空白值不改动
+    };
+    let item = type_item_index(ty);
+    if rows.type_buttons[index].get_selected() == item {
+        return;
+    }
+    rows.type_buttons[index].clone().select(item);
+}
+
+pub fn on_type_chosen(
+    trigger: On<ParamTypeChosen>,
+    mut rows: bevy::prelude::NonSendMut<ParamRows>,
+) {
+    let index = trigger.event().index as usize;
+    // 用户手动选择类型后锁定该行，不再随值自动推断。
+    if index < rows.type_locked.len() {
+        rows.type_locked[index] = true;
+    }
 }
 
 pub fn on_validate_clicked(
@@ -576,8 +664,13 @@ fn write_params(raw: &mut serde_json::Value, rows: &ParamRows) -> Result<(), Str
         }
         let ty = type_key(rows.type_buttons[i].get_selected());
         let text = rows.value_edits[i].get_text().to_string();
-        let value = parse_value(ty, &text)
-            .ok_or_else(|| format!("参数[{name}] 值解析失败（类型 {ty}）：{text}"))?;
+        // 值留空允许（未填状态），存空文本；运行时若被公式引用会在校验期暴露。
+        let value = if text.trim().is_empty() {
+            serde_json::Value::String(String::new())
+        } else {
+            parse_value(ty, &text)
+                .ok_or_else(|| format!("参数[{name}] 的值无法解析为{}：{text}", type_label(ty)))?
+        };
         params.push(serde_json::json!({
             "name": name,
             "value_type": ty,
@@ -585,6 +678,13 @@ fn write_params(raw: &mut serde_json::Value, rows: &ParamRows) -> Result<(), Str
         }));
     }
     Ok(())
+}
+
+fn type_label(ty: &str) -> &'static str {
+    PARAM_TYPES
+        .iter()
+        .find(|(key, _)| *key == ty)
+        .map_or("文本", |(_, label)| *label)
 }
 
 fn parse_value(ty: &str, text: &str) -> Option<serde_json::Value> {

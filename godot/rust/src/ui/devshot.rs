@@ -86,16 +86,17 @@ pub fn dev_shot_system(
     // 新增两个参数
     click_button(130, *frame, find("AddParamBtn"), "新增参数[0]", &mut godot);
     click_button(140, *frame, find("AddParamBtn"), "新增参数[1]", &mut godot);
-    // 编辑第 1 行：名称=考勤分 / 类型=小数 / 值=99.5
+    // 编辑第 1 行：名称=考勤分，输入值 99.5 → 期望自动推断类型为“小数”
     if *frame == 150 {
         if !rows.name_edits.is_empty()
             && !rows.type_buttons.is_empty()
             && !rows.value_edits.is_empty()
         {
             rows.name_edits[0].clone().set_text("考勤分");
-            rows.type_buttons[0].clone().select(2); // PARAM_TYPES 下标 2 = decimal
             rows.value_edits[0].clone().set_text("99.5");
-            info!("KPI_SHOT: 已编辑第 1 行参数（考勤分/小数/99.5）");
+            // set_text 不触发 text_changed，这里手动发出以模拟真实输入。
+            let _ = rows.value_edits[0].clone().emit_signal("text_changed", &[]);
+            info!("KPI_SHOT: 输入参数值 99.5（期望自动识别类型为小数）");
         } else {
             warn!("KPI_SHOT: 参数行尚未渲染，跳过行编辑");
         }
