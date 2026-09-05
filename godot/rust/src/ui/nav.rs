@@ -106,22 +106,22 @@ fn spawn_run_page(commands: &mut Commands, host: Option<GodotNodeHandle>, active
     let scene = GodotScene::from_path("res://scenes/run/run_console.tscn")
         .with_parent(host)
         .with_signal_connection(
-            "Margin/VBox/ActionRow/ValidateBtn",
+            "Margin/VBox/Split/ControlsBox/ActionRow/ValidateBtn",
             "pressed",
             |_args, _node, _entity| Some(ValidateClicked),
         )
         .with_signal_connection(
-            "Margin/VBox/ActionRow/DryRunBtn",
+            "Margin/VBox/Split/ControlsBox/ActionRow/DryRunBtn",
             "pressed",
             |_args, _node, _entity| Some(RunClicked { dry_run: true }),
         )
         .with_signal_connection(
-            "Margin/VBox/ActionRow/RunBtn",
+            "Margin/VBox/Split/ControlsBox/ActionRow/RunBtn",
             "pressed",
             |_args, _node, _entity| Some(RunClicked { dry_run: false }),
         )
         .with_signal_connection(
-            "Margin/VBox/MonthRow/MonthPickBtn",
+            "Margin/VBox/Split/ControlsBox/MonthRow/MonthPickBtn",
             "pressed",
             |_args, _node, _entity| Some(BrowseMonthClicked),
         )

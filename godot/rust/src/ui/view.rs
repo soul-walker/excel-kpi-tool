@@ -11,15 +11,15 @@ pub struct UiHost;
 /// run_console.tscn 的类型化视图。
 #[derive(NodeTreeView)]
 pub struct UiNodes {
-    #[node("Margin/VBox/SchemeRow/SchemeSelect")]
+    #[node("Margin/VBox/Split/ControlsBox/SchemeRow/SchemeSelect")]
     pub scheme_select: GodotNodeHandle,
-    #[node("Margin/VBox/MonthRow/MonthDirLabel")]
+    #[node("Margin/VBox/Split/ControlsBox/MonthRow/MonthDirLabel")]
     pub month_dir_label: GodotNodeHandle,
     #[node("MonthDirDialog")]
     pub month_dialog: GodotNodeHandle,
-    #[node("Margin/VBox/ActionRow/ValidateBtn")]
+    #[node("Margin/VBox/Split/ControlsBox/ActionRow/ValidateBtn")]
     pub validate_btn: GodotNodeHandle,
-    #[node("Margin/VBox/ActionRow/DryRunBtn")]
+    #[node("Margin/VBox/Split/ControlsBox/ActionRow/DryRunBtn")]
     pub dry_btn: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,

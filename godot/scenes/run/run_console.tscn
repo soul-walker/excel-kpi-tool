@@ -28,75 +28,65 @@ theme_override_constants/separation = 8
 layout_mode = 2
 text = "运行台 · 月度绩效"
 
-[node name="SchemeRow" type="HBoxContainer" parent="Margin/VBox"]
+[node name="Split" type="VSplitContainer" parent="Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = 230
+
+[node name="ControlsBox" type="VBoxContainer" parent="Margin/VBox/Split"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SchemeLabel" type="Label" parent="Margin/VBox/SchemeRow"]
+[node name="SchemeRow" type="HBoxContainer" parent="Margin/VBox/Split/ControlsBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SchemeLabel" type="Label" parent="Margin/VBox/Split/ControlsBox/SchemeRow"]
 layout_mode = 2
 text = "方案："
 
-[node name="SchemeSelect" type="OptionButton" parent="Margin/VBox/SchemeRow"]
+[node name="SchemeSelect" type="OptionButton" parent="Margin/VBox/Split/ControlsBox/SchemeRow"]
 layout_mode = 3
 size_flags_horizontal = 3
 
-[node name="MonthRow" type="HBoxContainer" parent="Margin/VBox"]
+[node name="MonthRow" type="HBoxContainer" parent="Margin/VBox/Split/ControlsBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="MonthLabel" type="Label" parent="Margin/VBox/MonthRow"]
+[node name="MonthLabel" type="Label" parent="Margin/VBox/Split/ControlsBox/MonthRow"]
 layout_mode = 2
 text = "月份目录："
 
-[node name="MonthDirLabel" type="Label" parent="Margin/VBox/MonthRow"]
+[node name="MonthDirLabel" type="Label" parent="Margin/VBox/Split/ControlsBox/MonthRow"]
 layout_mode = 3
 size_flags_horizontal = 3
 text = "（未选择）"
 clip_text = true
 tooltip_text = "当前月份台账目录"
 
-[node name="MonthPickBtn" type="Button" parent="Margin/VBox/MonthRow"]
+[node name="MonthPickBtn" type="Button" parent="Margin/VBox/Split/ControlsBox/MonthRow"]
 layout_mode = 2
 text = "选择…"
 
-[node name="ActionRow" type="HBoxContainer" parent="Margin/VBox"]
+[node name="ActionRow" type="HBoxContainer" parent="Margin/VBox/Split/ControlsBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ValidateBtn" type="Button" parent="Margin/VBox/ActionRow"]
+[node name="ValidateBtn" type="Button" parent="Margin/VBox/Split/ControlsBox/ActionRow"]
 layout_mode = 2
 text = "校验方案"
 
-[node name="DryRunBtn" type="Button" parent="Margin/VBox/ActionRow"]
+[node name="DryRunBtn" type="Button" parent="Margin/VBox/Split/ControlsBox/ActionRow"]
 layout_mode = 2
 text = "Dry-run 预览"
 
-[node name="RunBtn" type="Button" parent="Margin/VBox/ActionRow"]
+[node name="RunBtn" type="Button" parent="Margin/VBox/Split/ControlsBox/ActionRow"]
 layout_mode = 2
 text = "实际运行（写回+.bak）"
 
-[node name="Split" type="HSplitContainer" parent="Margin/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-split_offset = 620
-
-[node name="PreviewPanel" type="PanelContainer" parent="Margin/VBox/Split"]
-layout_mode = 2
-
-[node name="PreviewBox" type="VBoxContainer" parent="Margin/VBox/Split/PreviewPanel"]
-layout_mode = 2
-
-[node name="PreviewTitle" type="Label" parent="Margin/VBox/Split/PreviewPanel/PreviewBox"]
-layout_mode = 2
-text = "结果预览区"
-
-[node name="PreviewHint" type="Label" parent="Margin/VBox/Split/PreviewPanel/PreviewBox"]
-layout_mode = 2
-text = "（后续：dry-run 结果网格 / 问题清单）"
-modulate = Color(0.6, 0.6, 0.6, 1)
-
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2
+size_flags_vertical = 3
 
 [node name="Log" type="RichTextLabel" parent="Margin/VBox/Split/LogPanel"]
 layout_mode = 2
