@@ -11,3 +11,5 @@ crate-type = ["cdylib"]
 bevy = { workspace = true }
 godot = { workspace = true }
 godot-bevy = { workspace = true }
+kpi-engine = { workspace = true }
+serde_json = { workspace = true }

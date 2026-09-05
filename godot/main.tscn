@@ -1,3 +1,82 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
 
-[node name="Main" type="Node"]
+[ext_resource type="Script" path="res://ui.gd" id="1_ui"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_ui")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+text = "KPI 绩效方案工具 · M2 开发台"
+
+[node name="PathRow" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SchemeLabel" type="Label" parent="Margin/VBox/PathRow"]
+layout_mode = 2
+text = "方案："
+
+[node name="SchemePath" type="LineEdit" parent="Margin/VBox/PathRow"]
+unique_name_in_owner = true
+layout_mode = 3
+size_flags_horizontal = 3
+text = "res://../schemes/高中月绩效复刻.json"
+
+[node name="MonthLabel" type="Label" parent="Margin/VBox/PathRow"]
+layout_mode = 2
+text = "月份目录："
+
+[node name="MonthDir" type="LineEdit" parent="Margin/VBox/PathRow"]
+unique_name_in_owner = true
+layout_mode = 3
+size_flags_horizontal = 3
+text = "res://../testdata/2023-09"
+
+[node name="ActionRow" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ValidateBtn" type="Button" parent="Margin/VBox/ActionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "校验方案"
+
+[node name="DryRunBtn" type="Button" parent="Margin/VBox/ActionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Dry-run 预览"
+
+[node name="RunBtn" type="Button" parent="Margin/VBox/ActionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "实际运行（写回+.bak）"
+
+[node name="Log" type="RichTextLabel" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_following = true
