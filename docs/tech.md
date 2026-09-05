@@ -18,12 +18,13 @@
 
 ### Godot 只做表现，玩法逻辑一律走 Bevy（godot-bevy）
 
-- 场景、资产、动画、UI 等在 Godot 编辑器中搭建；
-- **业务 / 玩法逻辑全部用 Rust + Bevy ECS 实现**（组件、System、Schedule、Event、资源），
+- 场景、资产、UI 等在 Godot 编辑器中搭建（`.tscn` 只含内置节点/控件，**不挂脚本**）；
+- **业务 / UI 交互逻辑全部用 Rust + Bevy ECS 实现**（组件、System、Schedule、Event、Resource），
   挂在 `#[bevy_app]` 入口（`godot/rust/src/lib.rs`）启动的 App 上；
-- GDScript 仅允许用于编辑器插件与薄胶水，**不承载业务逻辑**；
-- 与 Godot 的桥接统一使用 godot-bevy 提供的能力（`#[bevy_app]`、TransformSync、
-  InputBridge、Audio 等），不绕开它自行注册 GDExtension 入口。
+- **项目不使用 GDScript**：禁止在 `godot/` 下新增 `.gd` 脚本（`addons/godot-bevy` 第三方插件自身除外）；
+  控件信号经 `GodotSignalsPlugin<T>` 类型化桥接进 Bevy observer，场景子节点用 `NodeTreeView` 类型化访问；
+- 与 Godot 的桥接统一使用 godot-bevy 提供的能力（`#[bevy_app]`、`GodotScene`、`GodotAccess`、
+  typed signals、`GodotBevyLogPlugin`（tracing 输出）等），不绕开它自行注册 GDExtension 入口。
 
 ### client / server 边界
 

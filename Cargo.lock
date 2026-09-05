@@ -1946,6 +1946,7 @@ dependencies = [
  "godot-bevy",
  "kpi-engine",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
