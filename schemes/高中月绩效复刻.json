@@ -22,8 +22,7 @@
     "sources": [
       {
         "id": "keshi",
-        "label": "课时",
-        "file": "{monthDir}/课时.xlsx",
+        "file": "课时.xlsx",
         "sheet": "课时",
         "header_row": 1,
         "parse": {},
@@ -34,8 +33,7 @@
       },
       {
         "id": "gangwei",
-        "label": "岗位",
-        "file": "{monthDir}/岗位.xlsx",
+        "file": "岗位.xlsx",
         "sheet": "Sheet1",
         "header_row": 1,
         "parse": {},
@@ -50,8 +48,7 @@
       },
       {
         "id": "qingjia",
-        "label": "请假替上课",
-        "file": "{monthDir}/请假替上课.xlsx",
+        "file": "请假替上课.xlsx",
         "sheet": "请假替上课",
         "header_row": 1,
         "parse": { "fill_down": ["姓名"] },
@@ -65,8 +62,7 @@
       },
       {
         "id": "qingjia_jl",
-        "label": "请假记录（主从合并，按天断行）",
-        "file": "{monthDir}/请假替上课.xlsx",
+        "file": "请假替上课.xlsx",
         "sheet": "请假替上课",
         "header_row": 1,
         "parse": { "fill_down": ["姓名"], "continue_record_on": ["天数"] },
@@ -80,8 +76,7 @@
       },
       {
         "id": "zaodu",
-        "label": "早读",
-        "file": "{monthDir}/早读.xlsx",
+        "file": "早读.xlsx",
         "sheet": "早读",
         "header_row": 1,
         "parse": {},
@@ -92,8 +87,7 @@
       },
       {
         "id": "weicanjia",
-        "label": "未参加升旗集会",
-        "file": "{monthDir}/未参加升旗、集会.xlsx",
+        "file": "未参加升旗、集会.xlsx",
         "sheet": "Sheet1",
         "header_row": 1,
         "parse": {},
@@ -104,8 +98,7 @@
       },
       {
         "id": "banzhuren",
-        "label": "班主任",
-        "file": "{monthDir}/班主任.xlsx",
+        "file": "班主任.xlsx",
         "sheet": "Sheet1",
         "header_row": 1,
         "parse": {},
@@ -118,7 +111,6 @@
     "derived": [
       {
         "id": "bukesh",
-        "label": "补课时（按替课老师汇总，供绩效引用）",
         "from": "qingjia",
         "when": "替上课老师 != ''",
         "map": { "姓名": "替上课老师", "节数": "节数" },
@@ -206,7 +198,7 @@
         "id": "jx",
         "kind": {
           "patch_template": {
-            "file": "{monthDir}/绩效.xlsx",
+            "file": "绩效.xlsx",
             "apply": "inplace",
             "backup": true,
             "dry_run": true,

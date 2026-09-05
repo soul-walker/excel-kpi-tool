@@ -169,7 +169,7 @@ fn apply_new_file_output(
 
 /// 运行整份方案（headless 主入口）。
 ///
-/// `month_dir` 作为 `{monthDir}` 的绑定目录（含全部输入台账与模板）。
+/// `month_dir` 为所有输入台账/模板的所在目录（方案里 `file` 为相对该目录的文件名）。
 /// 返回每个输出的执行结果，方便 GUI 展示/试算，或 CLI 打印。
 pub fn run_scheme_outputs(
     scheme: &Scheme,

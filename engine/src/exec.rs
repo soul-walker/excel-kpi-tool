@@ -29,7 +29,8 @@ pub struct DerivedTable {
     pub rows: Vec<CalcRow>,
 }
 
-/// 把方案里的 `{monthDir}` 绑定为实际目录。
+/// 把相对文件名绑定到月份目录：`file` 直接是相对月份目录的文件名；
+/// 兼容旧版 `{monthDir}/xxx` 前缀写法（剥掉前缀，兜底把其它位置的 `{monthDir}` 换成 "."）。
 pub fn resolve_file(pattern: &str, dir: &Path) -> PathBuf {
     // 前缀形式 `{monthDir}/xxx` 直接剥掉；兜底把其它位置的 `{monthDir}` 换成 "."。
     let rel = pattern
@@ -554,8 +555,7 @@ mod tests {
     fn qingjia_source() -> SourceSpec {
         SourceSpec {
             id: "qingjia".into(),
-            label: None,
-            file: "{monthDir}/请假替上课.xlsx".into(),
+            file: "请假替上课.xlsx".into(),
             sheet: "请假替上课".into(),
             header_row: 1,
             parse: ParseSpec {

@@ -411,8 +411,7 @@ mod tests {
     fn keshi_src() -> SourceSpec {
         SourceSpec {
             id: "keshi".into(),
-            label: None,
-            file: "{monthDir}/课时.xlsx".into(),
+            file: "课时.xlsx".into(),
             sheet: "课时".into(),
             header_row: 1,
             parse: ParseSpec::default(),

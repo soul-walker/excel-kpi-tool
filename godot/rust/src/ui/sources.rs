@@ -2,9 +2,10 @@
 //!
 //! 数据模型（raw["scheme"]["sources"]）：
 //! ```json
-//! [ { "id", "label"?, "file", "sheet", "header_row", "parse",
+//! [ { "id", "file", "sheet", "header_row", "parse",
 //!     "columns": [ { "header"|"index", "alias", "value_type", "key", "required"?, "bits"? } ] } ]
 //! ```
+//! `file` 为相对月份目录的文件名（旧版 `{monthDir}/` 前缀展示/保存时自动去掉）。
 //! UI：每源渲染两行卡片（源信息行 + 文件行）；选中源后在下方列映射区编辑列
 //! （表头 / 别名 / 类型 / 是否主键）。`parse`/`header_row`/`bits` 暂无图形编辑，原值保留。
 
@@ -50,7 +51,6 @@ fn col_type_key(item: i32) -> &'static str {
 #[derive(Default)]
 pub struct SourceRows {
     pub id_edits: Vec<Gd<LineEdit>>,
-    pub label_edits: Vec<Gd<LineEdit>>,
     pub file_edits: Vec<Gd<LineEdit>>,
     pub sheet_edits: Vec<Gd<LineEdit>>,
     /// “列映射”按钮：(源序号, 按钮)。
@@ -64,7 +64,6 @@ pub struct SourceRows {
 impl SourceRows {
     pub fn clear(&mut self) {
         self.id_edits.clear();
-        self.label_edits.clear();
         self.file_edits.clear();
         self.sheet_edits.clear();
         self.col_buttons.clear();
@@ -149,7 +148,6 @@ fn render_sources(
 
     for (i, s) in srcs.iter().enumerate() {
         let id = s.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let label = s.get("label").and_then(|v| v.as_str()).unwrap_or("");
         let file = s.get("file").and_then(|v| v.as_str()).unwrap_or("");
         let sheet = s.get("sheet").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -157,7 +155,7 @@ fn render_sources(
         card.set_name(&format!("SourceCard{i}"));
         card.add_theme_constant_override("separation", 2);
 
-        // 行1：序号 / id / 标签 / sheet / 列映射 / 删除
+        // 行1：序号 / id / sheet / 列映射 / 删除
         let mut line1 = HBoxContainer::new_alloc();
         line1.add_theme_constant_override("separation", 4);
         let mut idx_label = Label::new_alloc();
@@ -168,15 +166,9 @@ fn render_sources(
         let mut id_edit = LineEdit::new_alloc();
         id_edit.set_text(id);
         id_edit.set_placeholder("id");
-        id_edit.set_custom_minimum_size(Vector2::new(88.0, 0.0));
-        id_edit.set_tooltip_text("数据源标识（英文，如 keshi）");
+        id_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
+        id_edit.set_tooltip_text("数据源标识（派生/聚合按 id 引用；可用中文，如 课时表）");
         line1.add_child(&id_edit);
-
-        let mut label_edit = LineEdit::new_alloc();
-        label_edit.set_text(label);
-        label_edit.set_placeholder("标签（可选）");
-        label_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
-        line1.add_child(&label_edit);
 
         let mut sheet_edit = LineEdit::new_alloc();
         sheet_edit.set_text(sheet);
@@ -193,7 +185,7 @@ fn render_sources(
         line1.add_child(&del_btn);
         card.add_child(&line1);
 
-        // 行2：文件路径
+        // 行2：相对月份目录的文件名
         let mut line2 = HBoxContainer::new_alloc();
         line2.add_theme_constant_override("separation", 4);
         let mut file_label = Label::new_alloc();
@@ -201,16 +193,17 @@ fn render_sources(
         file_label.set_custom_minimum_size(Vector2::new(38.0, 0.0));
         line2.add_child(&file_label);
         let mut file_edit = LineEdit::new_alloc();
-        file_edit.set_text(file);
-        file_edit.set_placeholder("{monthDir}/台账.xlsx");
+        file_edit.set_text(&display_file(file));
+        file_edit.set_placeholder("课时.xlsx（月份目录下文件名）");
         file_edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
-        file_edit.set_tooltip_text("相对月份目录的路径，可用 {monthDir} 占位符");
+        file_edit.set_tooltip_text(
+            "相对运行台所选月份目录的文件名；旧版 {monthDir}/ 前缀保存时自动去掉",
+        );
         line2.add_child(&file_edit);
         card.add_child(&line2);
 
         box_node.add_child(&card);
         rows.id_edits.push(id_edit);
-        rows.label_edits.push(label_edit);
         rows.file_edits.push(file_edit);
         rows.sheet_edits.push(sheet_edit);
         rows.col_buttons.push((i as i32, col_btn));
@@ -375,7 +368,7 @@ pub fn on_add_source(
         };
         srcs.push(serde_json::json!({
             "id": format!("源{}", srcs.len() + 1),
-            "file": "{monthDir}/新建台账.xlsx",
+            "file": "新建台账.xlsx",
             "sheet": "Sheet1",
             "header_row": 1,
             "parse": {},
@@ -555,20 +548,17 @@ pub fn write_back(
             return Err(format!("第 {} 个数据源：id 不能为空", i + 1));
         }
         if file.trim().is_empty() {
-            return Err(format!("数据源[{id}]：文件路径不能为空"));
+            return Err(format!("数据源[{id}]：文件不能为空"));
         }
         if sheet.trim().is_empty() {
             return Err(format!("数据源[{id}]：sheet 名不能为空"));
         }
-        let label = rows.label_edits[i].get_text().to_string();
-        let label = label.trim();
         src["id"] = serde_json::Value::String(id.trim().to_string());
-        src["file"] = serde_json::Value::String(file.trim().to_string());
+        src["file"] = serde_json::Value::String(normalize_file(&file));
         src["sheet"] = serde_json::Value::String(sheet.trim().to_string());
-        if label.is_empty() {
-            src["label"] = serde_json::Value::Null;
-        } else {
-            src["label"] = serde_json::Value::String(label.to_string());
+        // 旧版 label 字段已废弃：保存时移除。
+        if let Some(obj) = src.as_object_mut() {
+            obj.remove("label");
         }
     }
     // 当前选中源的列映射写回
@@ -602,6 +592,20 @@ pub fn write_back(
 }
 
 // ---------- 辅助 ----------
+
+/// 展示用：去掉旧版 `{monthDir}/` 前缀，只显示相对文件名。
+fn display_file(raw: &str) -> String {
+    normalize_file(raw)
+}
+
+/// 归一化：去掉首部 `{monthDir}/` 前缀与首尾空白。
+fn normalize_file(raw: &str) -> String {
+    let t = raw.trim();
+    t.strip_prefix("{monthDir}/")
+        .unwrap_or(t)
+        .trim()
+        .to_string()
+}
 
 fn sources_of(doc: &EditorDoc) -> Option<&Vec<serde_json::Value>> {
     doc.raw

@@ -1,7 +1,7 @@
 //! 方案（Scheme）v0.1 数据模型。
 //!
 //! 设计约定（见 docs/设计评审 3.2/3.7）：
-//! - 方案是跨月稳定复用的“规则集”，每月只换数据目录（文件路径里的 `{monthDir}` 占位符在运行期绑定）；
+//! - 方案是跨月稳定复用的“规则集”，每月只换数据目录（数据源/模板 `file` 均为相对月份目录的文件名）；
 //! - 参数作为规则常量内嵌方案，policy 调整时 GUI 编辑并另存新版本；
 //! - 内部字段一律英文 snake_case；中文只属于 GUI 显示层；
 //! - v0.1 中所有表达式仅以字符串保存，语义求值由 calc DSL（M1）实现；
@@ -123,10 +123,9 @@ pub enum ParamValue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SourceSpec {
+    /// 数据源标识（源内唯一，派生/聚合用 id 引用；可用中文）。
     pub id: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    /// 文件路径（含 `{monthDir}` 占位符，运行期绑定本月目录）。
+    /// 相对月份目录的文件名（如 `课时.xlsx`）；兼容旧写法 `{monthDir}/课时.xlsx`（运行期剥前缀）。
     pub file: String,
     pub sheet: String,
     /// 表头所在行（1 起始）。
