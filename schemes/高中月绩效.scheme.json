@@ -5,7 +5,6 @@
     "description": "M0 样例：演示如何把老程序语义表达为一份方案。表达式语义求值待 M1（calc DSL）；本文件用于 schema 加载/校验回归。",
     "entity": {
       "key_field": "姓名",
-      "normalize": ["去空白", "去换行"],
       "duplicate": "report"
     },
     "parameters": [

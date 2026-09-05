@@ -73,14 +73,13 @@ pub struct Scheme {
 }
 
 /// 主维度（人）与 key 规则。
+///
+/// 去空白/换行/全角空格是**默认** key 归一化（对齐旧代码 HandleStringSpace），无需额外配置。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct EntitySpec {
     /// key 字段名，通常为“姓名”。
     pub key_field: String,
-    /// 归一化操作列表（GUI 提供可选集合，引擎按序执行）。
-    #[serde(default)]
-    pub normalize: Vec<String>,
     /// 重名策略。
     #[serde(default)]
     pub duplicate: DuplicatePolicy,
@@ -582,7 +581,7 @@ mod tests {
         "schema_version": 1,
         "scheme": {
             "name": "单测最小方案",
-            "entity": { "key_field": "姓名", "normalize": ["去空白"], "duplicate": "report" },
+            "entity": { "key_field": "姓名", "duplicate": "report" },
             "parameters": [
                 { "name": "课时费", "label": "课时费", "value_type": "decimal", "value": 1.5 }
             ],

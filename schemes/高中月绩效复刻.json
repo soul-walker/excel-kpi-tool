@@ -3,7 +3,7 @@
   "scheme": {
     "name": "高中月绩效复刻（对齐 golden）",
     "description": "M1 复刻方案：把 school-kpi 旧代码的绩效计算 1:1 表达为方案（含疑似 bug，如折扣 min() 取最后一个非零）。字段名=输出表头名；源/派生 id 为英文。LEAVE_DEDUCT/LEAVE_PENALTY/DISCOUNT 为引擎内置特殊函数（exec 已实现，按请假明细记录重建旧 CalKks/CalQj/CalZk 语义）。课时/请假天数/早读小计列 bits=32 复刻旧代码 ParseFloat(s,32)。",
-    "entity": { "key_field": "姓名", "normalize": ["去空白", "去换行"], "duplicate": "report" },
+    "entity": { "key_field": "姓名", "duplicate": "report" },
     "parameters": [
       { "name": "考勤奖", "label": "考勤奖", "value_type": "integer", "value": 100 },
       { "name": "一般岗位奖", "label": "一般岗位奖", "value_type": "integer", "value": 50 },
