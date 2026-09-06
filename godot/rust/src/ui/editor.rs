@@ -22,12 +22,13 @@ use tracing::info;
 
 use crate::bridge;
 
-use super::derived::{self, DerivedDetail as DvDetail, DerivedListRows as DvList};
+use super::derived::{self, DerivedDetail as DvDetail};
 use super::events::{
     EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
-    EditorSchemePicked, EditorValidateClicked, ParamRemoveClicked, ParamTypeChosen,
-    ParamValueEdited,
+    EditorSchemePicked, EditorValidateClicked, NameFieldFocusLost, ParamRemoveClicked,
+    ParamTypeChosen, ParamValueEdited,
 };
+use super::refs;
 use super::schemes;
 use super::sources::{self, ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{LogKind, log_line};
@@ -53,8 +54,8 @@ pub struct EditorNodes {
     pub cols_title: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsScroll/ColsBox")]
     pub cols_box: GodotNodeHandle,
-    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedScroll/DerivedBox")]
-    pub derived_box: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow/DerivedPick")]
+    pub derived_pick: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/DetailTitle")]
     pub derived_detail_title: GodotNodeHandle,
     #[node(
@@ -119,6 +120,8 @@ pub struct ParamRows {
     pub type_connected: usize,
     /// 类型是否被用户手动锁定（锁定后不再随值自动推断）。
     pub type_locked: Vec<bool>,
+    /// 已连接参数名输入框失焦数（改名即同步）。
+    pub name_focus_connected: usize,
 }
 
 impl ParamRows {
@@ -132,6 +135,7 @@ impl ParamRows {
         self.value_connected = 0;
         self.type_connected = 0;
         self.type_locked.clear();
+        self.name_focus_connected = 0;
     }
 }
 
@@ -194,7 +198,6 @@ pub fn resolve_editor(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -219,7 +222,6 @@ pub fn resolve_editor(
                     &mut rows,
                     &mut src_rows,
                     &mut col_rows,
-                    &mut dlist,
                     &mut ddetail,
                     &mut godot,
                 );
@@ -237,6 +239,7 @@ pub fn connect_param_signals(
     value_signals: GodotSignals<ParamValueEdited>,
     type_signals: GodotSignals<ParamTypeChosen>,
     remove_signals: GodotSignals<ParamRemoveClicked>,
+    name_focus: GodotSignals<NameFieldFocusLost>,
 ) {
     while rows.value_connected < rows.value_edits.len() {
         let index = rows.value_connected as i32;
@@ -263,6 +266,16 @@ pub fn connect_param_signals(
             Some(ParamRemoveClicked { index })
         });
         rows.connected += 1;
+    }
+    // 参数名失焦 → 改名即同步。
+    while rows.name_focus_connected < rows.name_edits.len() {
+        let handle = GodotNodeHandle::from_instance_id(
+            rows.name_edits[rows.name_focus_connected].instance_id(),
+        );
+        name_focus.connect(handle, "focus_exited", None, move |_a, n, _e| {
+            Some(NameFieldFocusLost { node: n })
+        });
+        rows.name_focus_connected += 1;
     }
 }
 
@@ -295,7 +308,6 @@ fn load_current(
     rows: &mut ParamRows,
     src_rows: &mut SrcRows,
     col_rows: &mut SrcCols,
-    dlist: &mut DvList,
     ddetail: &mut DvDetail,
     godot: &mut GodotAccess,
 ) {
@@ -344,7 +356,7 @@ fn load_current(
     doc.selected_source = 0;
     sources::render_all(nodes, doc, src_rows, col_rows, godot);
     doc.selected_derived = 0;
-    derived::render_all(nodes, doc, dlist, ddetail, godot);
+    derived::render_all(nodes, doc, ddetail, godot);
     log_ok(
         nodes,
         godot,
@@ -446,7 +458,6 @@ pub fn on_load_clicked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -457,7 +468,6 @@ pub fn on_load_clicked(
             &mut rows,
             &mut src_rows,
             &mut col_rows,
-            &mut dlist,
             &mut ddetail,
             &mut godot,
         );
@@ -471,7 +481,6 @@ pub fn on_scheme_picked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -482,7 +491,6 @@ pub fn on_scheme_picked(
             &mut rows,
             &mut src_rows,
             &mut col_rows,
-            &mut dlist,
             &mut ddetail,
             &mut godot,
         );
@@ -496,7 +504,6 @@ pub fn on_new_scheme_clicked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
@@ -530,7 +537,7 @@ pub fn on_new_scheme_clicked(
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
     sources::render_all(nodes, &doc, &mut src_rows, &mut col_rows, &mut godot);
     doc.selected_derived = 0;
-    derived::render_all(nodes, &doc, &mut dlist, &mut ddetail, &mut godot);
+    derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
     log_ok(
         nodes,
         &mut godot,
@@ -543,14 +550,22 @@ pub fn on_add_param_clicked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建行时丢失。
+    // 派生详情若引用了被改名的参数，也要先落库，改名传播才能同步到它。
+    let before = doc.raw.clone();
+    derived::flush_open(&mut doc, &ddetail);
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
         log_err(nodes, &mut godot, &format!("新增参数中止：{err}"));
         return;
     }
+    let renames = match (before.as_ref(), doc.raw.as_mut()) {
+        (Some(b), Some(a)) => refs::propagate(b, a),
+        _ => Vec::new(),
+    };
     let Some(raw) = &mut doc.raw else {
         log_err(nodes, &mut godot, "尚未载入方案");
         return;
@@ -566,6 +581,12 @@ pub fn on_add_param_clicked(
         "value": ""
     }));
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
+    for line in &renames {
+        log(nodes, &mut godot, line);
+    }
+    if !renames.is_empty() {
+        derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
+    }
     log(
         nodes,
         &mut godot,
@@ -581,15 +602,22 @@ pub fn on_remove_param(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
     let idx = trigger.event().index;
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建行时丢失。
+    let before = doc.raw.clone();
+    derived::flush_open(&mut doc, &ddetail);
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
         log_err(nodes, &mut godot, &format!("删除参数中止：{err}"));
         return;
     }
+    let renames = match (before.as_ref(), doc.raw.as_mut()) {
+        (Some(b), Some(a)) => refs::propagate(b, a),
+        _ => Vec::new(),
+    };
     let Some(raw) = &mut doc.raw else { return };
     let Some(params) = raw["scheme"]["parameters"].as_array_mut() else {
         return;
@@ -604,6 +632,12 @@ pub fn on_remove_param(
         .to_string();
     params.remove(idx as usize);
     render_param_rows(nodes, &doc, &mut rows, &mut godot);
+    for line in &renames {
+        log(nodes, &mut godot, line);
+    }
+    if !renames.is_empty() {
+        derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
+    }
     log(
         nodes,
         &mut godot,
@@ -642,15 +676,91 @@ pub fn on_type_chosen(
     }
 }
 
-pub fn on_validate_clicked(
-    _trigger: On<EditorValidateClicked>,
+/// 命名类输入框（源 id/列 alias/派生 id/视图列名/参数名）失焦 → 改名即同步：
+/// 把各页控件落库到 raw，检测改名并同步引用，若有改名则重建派生页控件。
+pub fn on_name_field_focus_lost(
+    trigger: On<NameFieldFocusLost>,
     refs: Res<EditorRefs>,
-    doc: Res<EditorDoc>,
+    mut doc: ResMut<EditorDoc>,
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
-    _dlist: bevy::prelude::NonSend<DvList>,
-    ddetail: bevy::prelude::NonSend<DvDetail>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
+    mut godot: GodotAccess,
+) {
+    let Some(nodes) = refs.nodes.as_ref() else {
+        return;
+    };
+    let node = trigger.event().node;
+    // 只处理“命名类”输入框（连接侧已限定，这里再兜底确认）。
+    let is_name_field = rows
+        .name_edits
+        .iter()
+        .any(|e| GodotNodeHandle::new(e.clone()) == node)
+        || src_rows
+            .id_edits
+            .iter()
+            .any(|e| GodotNodeHandle::new(e.clone()) == node)
+        || col_rows
+            .alias_edits
+            .iter()
+            .any(|e| GodotNodeHandle::new(e.clone()) == node)
+        || ddetail
+            .id_edit
+            .as_ref()
+            .is_some_and(|e| GodotNodeHandle::new(e.clone()) == node)
+        || ddetail
+            .field_name
+            .iter()
+            .any(|e| GodotNodeHandle::new(e.clone()) == node);
+    if !is_name_field {
+        return;
+    }
+
+    // 工作副本上做与“保存”一致的落库；任一校验失败就放弃本次实时同步
+    // （不会改动 doc.raw，错误仍会在保存/校验时提示）。
+    let Some(mut raw) = doc.raw.clone() else {
+        return;
+    };
+    let params_backup = doc
+        .raw
+        .as_ref()
+        .and_then(|r| r.pointer("/scheme/parameters"))
+        .cloned();
+    if write_params(&mut raw, &rows).is_err() {
+        // 参数行本身有校验问题时不拦其它标识符：把参数恢复为原状再继续。
+        if let (Some(backup), Some(scheme)) = (params_backup, raw.get_mut("scheme")) {
+            scheme["parameters"] = backup;
+        }
+    }
+    if sources::write_back(&mut raw, &src_rows, &col_rows, doc.selected_source).is_err() {
+        return;
+    }
+    if derived::write_back(&mut raw, &ddetail, doc.selected_derived).is_err() {
+        return;
+    }
+
+    let renames = match doc.raw.as_ref() {
+        Some(before) => refs::propagate(before, &mut raw),
+        None => Vec::new(),
+    };
+    doc.raw = Some(raw);
+    for line in &renames {
+        log(nodes, &mut godot, line);
+    }
+    if !renames.is_empty() {
+        derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
+    }
+}
+
+pub fn on_validate_clicked(
+    _trigger: On<EditorValidateClicked>,
+    refs: Res<EditorRefs>,
+    mut doc: ResMut<EditorDoc>,
+    rows: bevy::prelude::NonSend<ParamRows>,
+    src_rows: bevy::prelude::NonSend<SrcRows>,
+    col_rows: bevy::prelude::NonSend<SrcCols>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -686,6 +796,19 @@ pub fn on_validate_clicked(
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
+    // 改名引用传播：id/别名/参数名等被改后，整方案引用同步（只查不改文档）。
+    let mut renames = Vec::new();
+    if let Some(before) = doc.raw.as_ref() {
+        renames = refs::propagate(before, &mut raw);
+        for line in &renames {
+            log(nodes, &mut godot, line);
+        }
+    }
+    // 传播后 from 指向检查：改名已被同步，这里查真正悬空的引用。
+    if let Err(err) = refs::check_table_refs(&raw) {
+        log_err(nodes, &mut godot, &format!("校验中止：{err}"));
+        return;
+    }
     let text = match serde_json::to_string(&raw) {
         Ok(t) => t,
         Err(e) => {
@@ -697,6 +820,14 @@ pub fn on_validate_clicked(
     let out = bridge::render_result(&json);
     let kind = if out.ok { LogKind::Ok } else { LogKind::Err };
     log_kind(nodes, &mut godot, kind, &out.text);
+    // 只要发生了改名传播，就把同步后的方案提交回内存文档并刷新派生页控件，
+    // 使日志与界面一致（仅内存，不落盘）。不依赖引擎校验结果——
+    // 若还有其它问题，红色日志仍会指出，但改名引起的控件同步先行生效。
+    if !renames.is_empty() {
+        doc.raw = Some(raw);
+        derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
+        // 数据源/参数行控件即用户刚输入的新名字，无需重建。
+    }
 }
 
 pub fn on_save_clicked(
@@ -706,8 +837,7 @@ pub fn on_save_clicked(
     rows: bevy::prelude::NonSend<ParamRows>,
     src_rows: bevy::prelude::NonSend<SrcRows>,
     col_rows: bevy::prelude::NonSend<SrcCols>,
-    _dlist: bevy::prelude::NonSend<DvList>,
-    ddetail: bevy::prelude::NonSend<DvDetail>,
+    mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -752,6 +882,16 @@ pub fn on_save_clicked(
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }
+    // 改名引用传播：id/别名/参数名等被改后，整方案引用同步后再落盘。
+    let renames = match doc.raw.as_ref() {
+        Some(before) => refs::propagate(before, &mut raw),
+        None => Vec::new(),
+    };
+    // 传播后 from 指向检查：改名已被同步，这里查真正悬空的引用。
+    if let Err(err) = refs::check_table_refs(&raw) {
+        log_err(nodes, &mut godot, &format!("保存失败：{err}"));
+        return;
+    }
 
     let new_path = schemes::scheme_path(&format!("{new_base}.json"));
     let text = match serde_json::to_string_pretty(&raw) {
@@ -780,6 +920,13 @@ pub fn on_save_clicked(
     doc.raw = Some(raw);
     // 刷新下拉并选中当前文件
     populate_scheme_select(nodes, &mut godot, Some(new_base.as_str()));
+    for line in &renames {
+        log(nodes, &mut godot, line);
+    }
+    // 改名后重建派生页：把表达式/下拉等控件刷成同步后的引用文本。
+    if !renames.is_empty() {
+        derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
+    }
     log_ok(nodes, &mut godot, &format!("已保存：{new_path}{note}"));
 }
 

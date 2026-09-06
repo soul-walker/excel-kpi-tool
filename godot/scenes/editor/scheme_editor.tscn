@@ -182,7 +182,7 @@ layout_mode = 2
 
 [node name="DerivedHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
 layout_mode = 2
-text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。点行尾「详情」编辑。"
+text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。下拉切换要编辑的派生，点「+ 新增派生」添加。"
 size_flags_horizontal = 3
 autowrap_mode = 2
 
@@ -190,17 +190,27 @@ autowrap_mode = 2
 layout_mode = 2
 text = "+ 新增派生"
 
-[node name="DerivedScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
+[node name="PickRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
 layout_mode = 2
-
-[node name="DerivedBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedScroll"]
-layout_mode = 2
-size_flags_horizontal = 3
 theme_override_constants/separation = 4
+
+[node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(72, 0)
+text = "编辑派生："
+
+[node name="DerivedPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="DelDerivedBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow"]
+layout_mode = 2
+text = "删除当前派生"
 
 [node name="DetailScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
 
 [node name="DetailVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll"]
 layout_mode = 2
@@ -262,7 +272,7 @@ layout_mode = 2
 custom_minimum_size = Vector2(96, 0)
 text = "行过滤 where："
 
-[node name="WhereEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
+[node name="WhereEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
 layout_mode = 3
 size_flags_horizontal = 3
 placeholder_text = "留空=全部行；引用带前缀，如 qingjia.替上课老师 != ''"

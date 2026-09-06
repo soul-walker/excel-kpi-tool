@@ -161,6 +161,104 @@ pub fn dev_shot_system(
     }
     click_button(288, *frame, find("SaveBtn"), "保存(含派生)", &mut godot);
 
+    // 表达式补全自检：聚焦 where CodeEdit，输入 `参数.` → text_changed 应触发补全弹窗。
+    if *frame == 300
+        && let Some(edit) = &ddetail.where_edit
+    {
+        let mut code = edit.clone();
+        code.grab_focus();
+        code.set_text("参数.");
+        // 把光标放到行尾（set_text 的光标位置不可靠；真实输入时光标本就在新字符后）。
+        code.set_caret_line(0);
+        let len = code.get_text().to_string().chars().count() as i32;
+        code.set_caret_column(len);
+        // set_text 不触发 text_changed，手动发出以模拟真实输入。
+        let _ = edit.clone().emit_signal("text_changed", &[]);
+        info!("KPI_SHOT: 已在 where 聚焦并输入 参数.（期望自动弹出参数补全）");
+    } else if *frame == 300 {
+        warn!("KPI_SHOT: where 编辑框不可用，跳过补全自检");
+    }
+    // 聚焦展开校验：where 聚焦后应已从 42 撑高到 150。
+    if *frame == 310
+        && let Some(edit) = &ddetail.where_edit
+    {
+        let h = edit.clone().get_custom_minimum_size().y;
+        info!("KPI_SHOT: where 聚焦展开后高度 = {h}");
+    }
+
+    // 表达式补全自检②：动态视图列 CodeEdit（成员模式，来源表列）
+    if *frame == 330 {
+        if !ddetail.field_expr.is_empty() {
+            let mut code = ddetail.field_expr[0].clone();
+            code.grab_focus();
+            code.set_text("源1.");
+            code.set_caret_line(0);
+            let len = code.get_text().to_string().chars().count() as i32;
+            code.set_caret_column(len);
+            let _ = ddetail.field_expr[0]
+                .clone()
+                .emit_signal("text_changed", &[]);
+            info!("KPI_SHOT: 已在视图列 expr 输入 源1.（期望弹出来源列补全）");
+        } else {
+            warn!("KPI_SHOT: 视图列表达式框不可用，跳过列补全自检");
+        }
+    }
+    // 表达式补全自检③：小写关键字输入 → 应给出小写函数/关键字候选（sum(…）。
+    if *frame == 340 {
+        if !ddetail.field_expr.is_empty() {
+            let mut code = ddetail.field_expr[0].clone();
+            code.set_text("sum");
+            code.set_caret_line(0);
+            let len = code.get_text().to_string().chars().count() as i32;
+            code.set_caret_column(len);
+            let _ = ddetail.field_expr[0]
+                .clone()
+                .emit_signal("text_changed", &[]);
+            info!("KPI_SHOT: 已在视图列 expr 输入小写 su（期望提示小写 sum( 等关键字）");
+        } else {
+            warn!("KPI_SHOT: 视图列表达式框不可用，跳过关键字自检");
+        }
+    }
+    // 函数补全“带括号并把光标定位到括号中间”自检：模拟确认后文本为 sum()。
+    if *frame == 345 {
+        if !ddetail.field_expr.is_empty() {
+            let mut code = ddetail.field_expr[0].clone();
+            code.set_text("sum()");
+            code.set_caret_line(0);
+            let len = code.get_text().to_string().chars().count() as i32;
+            code.set_caret_column(len); // 光标放在 ) 之后，模拟刚确认补全
+            let _ = ddetail.field_expr[0]
+                .clone()
+                .emit_signal("text_changed", &[]);
+            info!("KPI_SHOT: 已模拟确认 sum()，期望光标自动移到括号中间");
+        } else {
+            warn!("KPI_SHOT: 视图列表达式框不可用，跳过括号光标自检");
+        }
+    }
+    // 焦点转移校验：where 失焦应恢复 42，列 expr 聚焦应展开到 150。
+    if *frame == 350 {
+        let wh = ddetail
+            .where_edit
+            .as_ref()
+            .map(|e| e.clone().get_custom_minimum_size().y)
+            .unwrap_or(-1.0);
+        let eh = ddetail
+            .field_expr
+            .first()
+            .map(|e| e.clone().get_custom_minimum_size().y)
+            .unwrap_or(-1.0);
+        info!("KPI_SHOT: 焦点转移后 where 高度 = {wh}，列 expr 高度 = {eh}");
+    }
+    // 括号光标定位校验：期望列在 sum() 的 '(' 与 ')' 之间（列 4）。
+    if *frame == 355 {
+        let col = ddetail
+            .field_expr
+            .first()
+            .map(|e| e.clone().get_caret_column())
+            .unwrap_or(-1);
+        info!("KPI_SHOT: 确认函数补全后光标列 = {col}（期望 4）");
+    }
+
     if *frame == 380
         && let Some(handle) = find("AppTitle")
     {

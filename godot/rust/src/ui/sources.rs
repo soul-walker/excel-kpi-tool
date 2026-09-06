@@ -8,6 +8,8 @@
 //! `file` 为相对月份目录的文件名（旧版 `{monthDir}/` 前缀展示/保存时自动去掉）。
 //! UI：每源渲染两行卡片（源信息行 + 文件行）；选中源后在下方列映射区编辑列
 //! （表头 / 别名 / 类型 / 是否主键）。`parse`/`header_row`/`bits` 暂无图形编辑，原值保留。
+//! 增删/切换（数据源、列映射选中）都会重建页面，故这些动作前先把行控件与
+//! 当前列网格的未保存编辑写回 raw（`flush_open`），编辑不会因重建丢失。
 
 use bevy::ecs::observer::On;
 use bevy::prelude::{Res, ResMut};
@@ -21,10 +23,13 @@ use godot::prelude::Gd;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle, GodotSignals};
 use tracing::info;
 
+use super::derived::{self, DerivedDetail};
 use super::editor::{EditorDoc, EditorNodes, EditorRefs};
 use super::events::{
-    AddColClicked, AddSourceClicked, ColRemoveClicked, SourceColsClicked, SourceRemoveClicked,
+    AddColClicked, AddSourceClicked, ColRemoveClicked, NameFieldFocusLost, SourceColsClicked,
+    SourceRemoveClicked,
 };
+use super::refs;
 use super::view::{LogKind, log_line};
 
 /// 列可编辑的值类型（比参数多“日期”）。
@@ -59,6 +64,8 @@ pub struct SourceRows {
     pub del_buttons: Vec<(i32, Gd<Button>)>,
     pub connected_col: usize,
     pub connected_del: usize,
+    /// 已连接“源 id”输入框失焦数（改名即同步）。
+    pub id_focus_connected: usize,
 }
 
 impl SourceRows {
@@ -70,6 +77,7 @@ impl SourceRows {
         self.del_buttons.clear();
         self.connected_col = 0;
         self.connected_del = 0;
+        self.id_focus_connected = 0;
     }
 }
 
@@ -82,6 +90,11 @@ pub struct ColRows {
     pub key_checks: Vec<Gd<CheckButton>>,
     pub del_buttons: Vec<(i32, Gd<Button>)>,
     pub connected: usize,
+    /// 列网格当前正在展示的数据源序号（None = 无源/尚未渲染）。
+    /// 结构性操作前据此把未保存编辑写回对应源。
+    pub rendered_for: Option<i32>,
+    /// 已连接“列 alias”输入框失焦数（改名即同步）。
+    pub alias_focus_connected: usize,
 }
 
 impl ColRows {
@@ -92,6 +105,8 @@ impl ColRows {
         self.key_checks.clear();
         self.del_buttons.clear();
         self.connected = 0;
+        self.rendered_for = None;
+        self.alias_focus_connected = 0;
     }
 }
 
@@ -244,6 +259,11 @@ fn render_cols(nodes: &EditorNodes, doc: &EditorDoc, cols: &mut ColRows, godot: 
         .cloned()
         .unwrap_or_default();
     let sel = (doc.selected_source as usize).min(srcs.len().saturating_sub(1));
+    cols.rendered_for = if srcs.is_empty() {
+        None
+    } else {
+        Some(sel as i32)
+    };
 
     let mut title = godot.get::<Label>(nodes.cols_title);
     if let Some(s) = srcs.get(sel) {
@@ -347,6 +367,7 @@ pub fn connect_sources_signals(
     source_del: GodotSignals<SourceRemoveClicked>,
     source_cols: GodotSignals<SourceColsClicked>,
     col_del: GodotSignals<ColRemoveClicked>,
+    name_focus: GodotSignals<NameFieldFocusLost>,
 ) {
     while rows.connected_col < rows.col_buttons.len() {
         let (index, button) = rows.col_buttons[rows.connected_col].clone();
@@ -372,9 +393,118 @@ pub fn connect_sources_signals(
         });
         cols.connected += 1;
     }
+    // 源 id / 列 alias 输入框失焦 → 改名即同步。
+    while rows.id_focus_connected < rows.id_edits.len() {
+        let handle =
+            GodotNodeHandle::from_instance_id(rows.id_edits[rows.id_focus_connected].instance_id());
+        name_focus.connect(handle, "focus_exited", None, move |_a, n, _e| {
+            Some(NameFieldFocusLost { node: n })
+        });
+        rows.id_focus_connected += 1;
+    }
+    while cols.alias_focus_connected < cols.alias_edits.len() {
+        let handle = GodotNodeHandle::from_instance_id(
+            cols.alias_edits[cols.alias_focus_connected].instance_id(),
+        );
+        name_focus.connect(handle, "focus_exited", None, move |_a, n, _e| {
+            Some(NameFieldFocusLost { node: n })
+        });
+        cols.alias_focus_connected += 1;
+    }
 }
 
 // ---------- 增删（观察者） ----------
+
+/// 增删/切换前的“落库”：把数据源行与当前列网格里尚未保存的编辑写回 raw。
+/// 若控件与模型行数对不上（页面刚重建/未渲染），宁可不动模型。
+fn flush_open(raw: &mut serde_json::Value, rows: &SourceRows, cols: &ColRows) {
+    let Some(srcs) = raw
+        .get_mut("scheme")
+        .and_then(|s| s.get_mut("sources"))
+        .and_then(|v| v.as_array_mut())
+    else {
+        return;
+    };
+    // 数据源行：id / 文件 / sheet 原样写回（不做校验；保存/校验时仍会查空）。
+    if rows.id_edits.len() == srcs.len() {
+        for (i, src) in srcs.iter_mut().enumerate() {
+            let id = rows.id_edits[i].get_text().to_string();
+            let file = rows.file_edits[i].get_text().to_string();
+            let sheet = rows.sheet_edits[i].get_text().to_string();
+            src["id"] = serde_json::Value::String(id.trim().to_string());
+            src["file"] = serde_json::Value::String(normalize_file(&file));
+            src["sheet"] = serde_json::Value::String(sheet.trim().to_string());
+            // 旧版 label 字段已废弃：随保存一并移除。
+            if let Some(obj) = src.as_object_mut() {
+                obj.remove("label");
+            }
+        }
+    }
+    // 列映射：只写回当前正展示的那个源（其网格控件确实由它渲染而来）。
+    let Some(idx) = cols.rendered_for else {
+        return;
+    };
+    let Some(src) = srcs.get_mut(idx as usize) else {
+        return;
+    };
+    let mut columns = Vec::new();
+    for j in 0..cols.alias_edits.len() {
+        let alias = cols.alias_edits[j].get_text().to_string();
+        let header = cols.header_edits[j].get_text().to_string();
+        let ty = col_type_key(cols.type_buttons[j].get_selected());
+        let key = cols.key_checks[j].is_pressed();
+        let mut col = serde_json::json!({ "alias": alias, "value_type": ty, "key": key });
+        let header = header.trim();
+        if header.is_empty() {
+            col["header"] = serde_json::Value::Null;
+        } else {
+            col["header"] = serde_json::Value::String(header.to_string());
+        }
+        columns.push(col);
+    }
+    src["columns"] = serde_json::Value::Array(columns);
+}
+
+/// 增删/切换选中前调用：把控件里的未保存编辑先落回 raw，再改动模型并重建页面。
+fn flush_open_doc(doc: &mut EditorDoc, rows: &SourceRows, cols: &ColRows) {
+    let Some(raw) = doc.raw.as_mut() else {
+        return;
+    };
+    flush_open(raw, rows, cols);
+}
+
+/// 源/派生两处“落库”后做改名传播：派生详情面板的未保存编辑也要先写回，
+/// 否则改名（源 id/列 alias/派生 id/视图列名）同步不到它。返回改名日志（空=无）。
+fn flush_and_propagate(
+    doc: &mut EditorDoc,
+    rows: &SourceRows,
+    cols: &ColRows,
+    detail: &DerivedDetail,
+) -> Vec<String> {
+    let before = doc.raw.clone();
+    derived::flush_open(doc, detail);
+    flush_open_doc(doc, rows, cols);
+    match (before.as_ref(), doc.raw.as_mut()) {
+        (Some(b), Some(a)) => refs::propagate(b, a),
+        _ => Vec::new(),
+    }
+}
+
+/// 源页面重建后，若传播过改名则重建派生页，让引用类控件显示同步后的值。
+fn log_and_sync_derived(
+    nodes: &EditorNodes,
+    doc: &EditorDoc,
+    detail: &mut DerivedDetail,
+    godot: &mut GodotAccess,
+    renames: &[String],
+) {
+    for line in renames {
+        log_plain(nodes, godot, line);
+    }
+    if !renames.is_empty() {
+        derived::render_all(nodes, doc, detail, godot);
+    }
+}
 
 fn sources_mut(doc: &mut EditorDoc) -> Option<&mut Vec<serde_json::Value>> {
     doc.raw
@@ -394,9 +524,12 @@ pub fn on_add_source(
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<SourceRows>,
     mut cols: bevy::prelude::NonSendMut<ColRows>,
+    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
+    // 先把当前行内未保存的编辑提交回 raw，避免下面重建整页时丢失。
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail);
     let n = {
         let Some(srcs) = sources_mut(&mut doc) else {
             log_err(nodes, &mut godot, "尚未载入方案");
@@ -416,6 +549,7 @@ pub fn on_add_source(
     };
     doc.selected_source = n as i32 - 1;
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
+    log_and_sync_derived(nodes, &doc, &mut detail, &mut godot, &renames);
     log_plain(
         nodes,
         &mut godot,
@@ -429,10 +563,13 @@ pub fn on_remove_source(
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<SourceRows>,
     mut cols: bevy::prelude::NonSendMut<ColRows>,
+    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     let idx = trigger.event().index;
+    // 先把当前行内未保存的编辑提交回 raw，避免删除重建时丢失。
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail);
     let removed_id = {
         let Some(srcs) = sources_mut(&mut doc) else {
             return;
@@ -453,6 +590,7 @@ pub fn on_remove_source(
         doc.selected_source = last.max(0);
     }
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
+    log_and_sync_derived(nodes, &doc, &mut detail, &mut godot, &renames);
     log_plain(
         nodes,
         &mut godot,
@@ -466,11 +604,15 @@ pub fn on_source_cols(
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<SourceRows>,
     mut cols: bevy::prelude::NonSendMut<ColRows>,
+    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
+    // 切到另一个源前，先把当前源行/列网格的未保存编辑落回 raw。
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail);
     doc.selected_source = trigger.event().index.max(0);
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
+    log_and_sync_derived(nodes, &doc, &mut detail, &mut godot, &renames);
     let sid = sources_of(&doc)
         .and_then(|s| s.get(doc.selected_source as usize))
         .and_then(|s| s.get("id"))
@@ -485,9 +627,12 @@ pub fn on_add_col(
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<SourceRows>,
     mut cols: bevy::prelude::NonSendMut<ColRows>,
+    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
+    // 先把当前行内未保存的编辑提交回 raw，避免重建列网格时把已编辑列还原。
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail);
     let result = (|| -> Result<usize, String> {
         let sel = doc.selected_source as usize;
         let Some(srcs) = sources_mut(&mut doc) else {
@@ -508,6 +653,7 @@ pub fn on_add_col(
     match result {
         Ok(total) => {
             render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
+            log_and_sync_derived(nodes, &doc, &mut detail, &mut godot, &renames);
             log_plain(
                 nodes,
                 &mut godot,
@@ -524,10 +670,13 @@ pub fn on_remove_col(
     mut doc: ResMut<EditorDoc>,
     mut rows: bevy::prelude::NonSendMut<SourceRows>,
     mut cols: bevy::prelude::NonSendMut<ColRows>,
+    mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     let idx = trigger.event().index;
+    // 先把当前未保存的编辑提交回 raw，避免删列重建时把其它已编辑列还原。
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail);
     let sel = doc.selected_source as usize;
     let removed = {
         let Some(srcs) = sources_mut(&mut doc) else {
@@ -552,6 +701,7 @@ pub fn on_remove_col(
         removed
     };
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
+    log_and_sync_derived(nodes, &doc, &mut detail, &mut godot, &renames);
     log_plain(nodes, &mut godot, &format!("已删除列 [{idx}]：{removed}"));
 }
 

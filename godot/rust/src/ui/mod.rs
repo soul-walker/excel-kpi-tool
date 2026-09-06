@@ -14,8 +14,10 @@ pub mod derived;
 pub mod devshot;
 pub mod editor;
 pub mod events;
+pub mod expr;
 pub mod handlers;
 pub mod nav;
+pub mod refs;
 pub mod schemes;
 pub mod setup;
 pub mod sources;
@@ -24,11 +26,12 @@ pub mod view;
 use bevy::app::{App, Plugin};
 use events::{
     AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
-    ColRemoveClicked, DerivedDetailClicked, DerivedFieldRemoveClicked, DerivedRemoveClicked,
-    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
-    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, ParamRemoveClicked, ParamTypeChosen,
-    ParamValueEdited, RunClicked, ShowEditorPage, ShowRunPage, SourceColsClicked,
-    SourceRemoveClicked, ValidateClicked,
+    ColRemoveClicked, DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked,
+    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
+    EditorValidateClicked, ExprCompletionRequested, ExprFocusEntered, ExprFocusExited,
+    ExprTextChanged, MonthDirPicked, NameFieldFocusLost, ParamRemoveClicked, ParamTypeChosen,
+    ParamValueEdited, RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage,
+    SourceColsClicked, SourceRemoveClicked, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
@@ -60,20 +63,25 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<AddColClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ColRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<AddDerivedClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<DerivedRemoveClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<DerivedDetailClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<DerivedPicked>::default())
+            .add_plugins(GodotSignalsPlugin::<RemoveCurrentDerived>::default())
             .add_plugins(GodotSignalsPlugin::<AddDerivedFieldClicked>::default())
-            .add_plugins(GodotSignalsPlugin::<DerivedFieldRemoveClicked>::default());
+            .add_plugins(GodotSignalsPlugin::<DerivedFieldRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<ExprTextChanged>::default())
+            .add_plugins(GodotSignalsPlugin::<ExprCompletionRequested>::default())
+            .add_plugins(GodotSignalsPlugin::<ExprFocusEntered>::default())
+            .add_plugins(GodotSignalsPlugin::<ExprFocusExited>::default())
+            .add_plugins(GodotSignalsPlugin::<NameFieldFocusLost>::default());
 
         app.init_resource::<UiRefs>();
         app.init_resource::<editor::EditorRefs>();
         app.init_resource::<editor::EditorDoc>();
         app.init_resource::<nav::ContentHost>();
         app.init_resource::<nav::ActivePage>();
+        app.init_resource::<expr::TextLenMap>();
         app.insert_non_send_resource(editor::ParamRows::default());
         app.insert_non_send_resource(sources::SourceRows::default());
         app.insert_non_send_resource(sources::ColRows::default());
-        app.insert_non_send_resource(derived::DerivedListRows::default());
         app.insert_non_send_resource(derived::DerivedDetail::default());
 
         app.add_systems(bevy::prelude::Startup, nav::setup_router);
@@ -102,16 +110,21 @@ impl Plugin for UiPlugin {
         app.add_observer(editor::on_remove_param);
         app.add_observer(editor::on_value_edited);
         app.add_observer(editor::on_type_chosen);
+        app.add_observer(editor::on_name_field_focus_lost);
         app.add_observer(sources::on_add_source);
         app.add_observer(sources::on_remove_source);
         app.add_observer(sources::on_source_cols);
         app.add_observer(sources::on_add_col);
         app.add_observer(sources::on_remove_col);
         app.add_observer(derived::on_add_derived);
-        app.add_observer(derived::on_remove_derived);
-        app.add_observer(derived::on_derived_detail);
+        app.add_observer(derived::on_derived_picked);
+        app.add_observer(derived::on_remove_current);
         app.add_observer(derived::on_add_field);
         app.add_observer(derived::on_remove_field);
+        app.add_observer(expr::on_expr_text_changed);
+        app.add_observer(expr::on_expr_completion);
+        app.add_observer(expr::on_expr_focus_entered);
+        app.add_observer(expr::on_expr_focus_exited);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
     }

@@ -1,6 +1,7 @@
 //! 按钮/控件事件（由 typed signal 桥接映射到 Bevy）。
 
 use bevy::prelude::Event;
+use godot_bevy::interop::GodotNodeHandle;
 
 /// “校验方案”按钮。
 #[derive(Event, Debug, Clone, Copy)]
@@ -102,17 +103,13 @@ pub(crate) struct ColRemoveClicked {
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct AddDerivedClicked;
 
-/// 编辑器：删除第 index 个派生视图。
+/// 编辑器：派生下拉框切换了要编辑的派生（目标序号 = 控件当前选中项）。
 #[derive(Event, Debug, Clone, Copy)]
-pub(crate) struct DerivedRemoveClicked {
-    pub index: i32,
-}
+pub(crate) struct DerivedPicked;
 
-/// 编辑器：选中第 index 个派生（“详情”按钮）编辑其 id/来源/视图列。
+/// 编辑器：“删除当前派生”（删除下拉当前选中的派生）。
 #[derive(Event, Debug, Clone, Copy)]
-pub(crate) struct DerivedDetailClicked {
-    pub index: i32,
-}
+pub(crate) struct RemoveCurrentDerived;
 
 /// 编辑器：“+ 视图列”到当前派生。
 #[derive(Event, Debug, Clone, Copy)]
@@ -122,4 +119,35 @@ pub(crate) struct AddDerivedFieldClicked;
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct DerivedFieldRemoveClicked {
     pub index: i32,
+}
+
+/// 表达式 CodeEdit：文本变化（用于按输入节奏请求补全）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ExprTextChanged {
+    pub node: GodotNodeHandle,
+}
+
+/// 表达式 CodeEdit：请求补全（Ctrl+Space / `.` 前缀 / 输入中都会触发）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ExprCompletionRequested {
+    pub node: GodotNodeHandle,
+}
+
+/// 表达式 CodeEdit：获得焦点（用于展开高度给补全列表留空间）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ExprFocusEntered {
+    pub node: GodotNodeHandle,
+}
+
+/// 表达式 CodeEdit：失去焦点（恢复紧凑高度）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ExprFocusExited {
+    pub node: GodotNodeHandle,
+}
+
+/// 命名类输入框（数据源 id / 列 alias / 派生 id / 视图列名 / 参数名）失去焦点。
+/// 触发“改名即同步”：先落库再引用传播，其它页控件立即刷新。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct NameFieldFocusLost {
+    pub node: GodotNodeHandle,
 }

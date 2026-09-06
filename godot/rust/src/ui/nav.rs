@@ -7,13 +7,13 @@ use godot::builtin::GString;
 use godot_bevy::prelude::{GodotNodeHandle, GodotScene, GodotSignals};
 use tracing::{info, warn};
 
-use super::derived::{DerivedDetail as DvDetail, DerivedListRows as DvList};
+use super::derived::DerivedDetail as DvDetail;
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
     AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
-    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
-    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RunClicked, ShowEditorPage,
-    ShowRunPage, ValidateClicked,
+    DerivedPicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
+    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked,
+    RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
 };
 use super::sources::{ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{UiHost, UiRefs};
@@ -45,7 +45,6 @@ pub fn setup_router(
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
 ) {
     for (handle, name) in &nodes {
@@ -69,7 +68,6 @@ pub fn setup_router(
     param_rows.clear();
     src_rows.clear();
     col_rows.clear();
-    dlist.clear();
     ddetail.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
@@ -99,7 +97,6 @@ pub fn on_show_editor_page(
     mut param_rows: bevy::prelude::NonSendMut<ParamRows>,
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
-    mut dlist: bevy::prelude::NonSendMut<DvList>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
 ) {
     info!("导航：方案编辑");
@@ -110,7 +107,6 @@ pub fn on_show_editor_page(
     param_rows.clear();
     src_rows.clear();
     col_rows.clear();
-    dlist.clear();
     ddetail.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
@@ -218,6 +214,16 @@ fn spawn_editor_page(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow/AddDerivedBtn",
             "pressed",
             |_args, _node, _entity| Some(AddDerivedClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow/DerivedPick",
+            "item_selected",
+            |_args, _node, _entity| Some(DerivedPicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow/DelDerivedBtn",
+            "pressed",
+            |_args, _node, _entity| Some(RemoveCurrentDerived),
         )
         .with_signal_connection(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead/AddFieldBtn",
