@@ -121,6 +121,22 @@ pub(crate) struct DerivedFieldRemoveClicked {
     pub index: i32,
 }
 
+/// 编辑器：“+ 新增聚合指标”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddAggregateClicked;
+
+/// 编辑器：聚合下拉框切换了要编辑的指标（目标序号 = 控件当前选中项）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AggregatePicked;
+
+/// 编辑器：“删除当前指标”（删除下拉当前选中的聚合指标）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct RemoveCurrentAggregate;
+
+/// 编辑器：指标详情里的“来源表 from”下拉被改动（分组列候选随之刷新）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AggFromChanged;
+
 /// 表达式 CodeEdit：文本变化（用于按输入节奏请求补全）。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct ExprTextChanged {

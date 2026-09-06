@@ -7,12 +7,14 @@ use godot::builtin::GString;
 use godot_bevy::prelude::{GodotNodeHandle, GodotScene, GodotSignals};
 use tracing::{info, warn};
 
+use super::aggregates::AggregateDetail as AggDetail;
 use super::derived::DerivedDetail as DvDetail;
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
-    DerivedPicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
-    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, MonthDirPicked,
+    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked,
+    AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked, DerivedPicked,
+    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
+    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RemoveCurrentAggregate,
     RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
 };
 use super::sources::{ColRows as SrcCols, SourceRows as SrcRows};
@@ -46,6 +48,7 @@ pub fn setup_router(
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
 ) {
     for (handle, name) in &nodes {
         match name.as_str() {
@@ -69,6 +72,7 @@ pub fn setup_router(
     src_rows.clear();
     col_rows.clear();
     ddetail.clear();
+    adetail.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -98,6 +102,7 @@ pub fn on_show_editor_page(
     mut src_rows: bevy::prelude::NonSendMut<SrcRows>,
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
 ) {
     info!("导航：方案编辑");
     editor_refs.nodes = None;
@@ -108,6 +113,7 @@ pub fn on_show_editor_page(
     src_rows.clear();
     col_rows.clear();
     ddetail.clear();
+    adetail.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
 
@@ -229,6 +235,26 @@ fn spawn_editor_page(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead/AddFieldBtn",
             "pressed",
             |_args, _node, _entity| Some(AddDerivedFieldClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow/AddAggBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddAggregateClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow/AggPick",
+            "item_selected",
+            |_args, _node, _entity| Some(AggregatePicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow/DelAggBtn",
+            "pressed",
+            |_args, _node, _entity| Some(RemoveCurrentAggregate),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow/AggFromSelect",
+            "item_selected",
+            |_args, _node, _entity| Some(AggFromChanged),
         );
     let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);

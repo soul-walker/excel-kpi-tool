@@ -24,10 +24,11 @@ use godot::classes::{CodeEdit, CodeHighlighter, SyntaxHighlighter};
 use godot::obj::NewGd;
 use godot::prelude::{GString, Gd};
 use godot_bevy::interop::GodotNodeHandle;
-use godot_bevy::prelude::GodotAccess;
+use godot_bevy::prelude::{GodotAccess, GodotSignals};
 use serde_json::Value;
 use tracing::info;
 
+use super::aggregates::AggregateDetail;
 use super::derived::DerivedDetail;
 use super::editor::EditorDoc;
 use super::events::{ExprCompletionRequested, ExprFocusEntered, ExprFocusExited, ExprTextChanged};
@@ -110,6 +111,10 @@ pub(crate) enum EditRole {
     DerivedWhere,
     /// 派生视图列 expr。
     DerivedColExpr,
+    /// 聚合指标的行过滤 where。
+    AggWhere,
+    /// 聚合指标 expr。
+    AggExpr,
 }
 
 /// 文本长度快照：用于区分“打字”与“删除/程序 set_text”（删除时不自动弹补全）。
@@ -160,6 +165,30 @@ pub(crate) fn configure_code_edit(
         edit.set_h_size_flags(SizeFlags::EXPAND_FILL);
     }
     apply_highlight(edit, raw);
+}
+
+/// 给一个表达式 CodeEdit 接上 text_changed / code_completion_requested / 焦点信号。
+/// 派生与聚合页签的表达式输入框共用此连接（同一实例只应连一次）。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn connect_code_edit_signals(
+    text_sig: &GodotSignals<ExprTextChanged>,
+    comp_sig: &GodotSignals<ExprCompletionRequested>,
+    enter_sig: &GodotSignals<ExprFocusEntered>,
+    exit_sig: &GodotSignals<ExprFocusExited>,
+    handle: GodotNodeHandle,
+) {
+    text_sig.connect(handle, "text_changed", None, |_a, n, _e| {
+        Some(ExprTextChanged { node: n })
+    });
+    comp_sig.connect(handle, "code_completion_requested", None, |_a, n, _e| {
+        Some(ExprCompletionRequested { node: n })
+    });
+    enter_sig.connect(handle, "focus_entered", None, |_a, n, _e| {
+        Some(ExprFocusEntered { node: n })
+    });
+    exit_sig.connect(handle, "focus_exited", None, |_a, n, _e| {
+        Some(ExprFocusExited { node: n })
+    });
 }
 
 /// 为表达式 CodeEdit 挂 CodeHighlighter：关键字/函数/命名空间/成员/字符串/数字分色。
@@ -234,10 +263,11 @@ fn table_ids(scheme: &Value) -> Vec<String> {
 pub(crate) fn on_expr_focus_entered(
     trigger: On<ExprFocusEntered>,
     detail: NonSend<DerivedDetail>,
+    agg: NonSend<AggregateDetail>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, node).is_none() {
+    if role_of(&detail, &agg, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -251,10 +281,11 @@ pub(crate) fn on_expr_focus_entered(
 pub(crate) fn on_expr_focus_exited(
     trigger: On<ExprFocusExited>,
     detail: NonSend<DerivedDetail>,
+    agg: NonSend<AggregateDetail>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, node).is_none() {
+    if role_of(&detail, &agg, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -271,7 +302,11 @@ fn set_min_height(edit: &mut Gd<CodeEdit>, height: f32) {
 }
 
 /// 判断输入框属于哪种表达式位置（通过实例 id 与详情控件对拍）。
-fn role_of(detail: &DerivedDetail, node: GodotNodeHandle) -> Option<EditRole> {
+fn role_of(
+    detail: &DerivedDetail,
+    agg: &AggregateDetail,
+    node: GodotNodeHandle,
+) -> Option<EditRole> {
     if detail
         .where_edit
         .as_ref()
@@ -286,6 +321,20 @@ fn role_of(detail: &DerivedDetail, node: GodotNodeHandle) -> Option<EditRole> {
     {
         return Some(EditRole::DerivedColExpr);
     }
+    if agg
+        .where_edit
+        .as_ref()
+        .is_some_and(|w| GodotNodeHandle::new(w.clone()) == node)
+    {
+        return Some(EditRole::AggWhere);
+    }
+    if agg
+        .expr_edit
+        .as_ref()
+        .is_some_and(|e| GodotNodeHandle::new(e.clone()) == node)
+    {
+        return Some(EditRole::AggExpr);
+    }
     None
 }
 
@@ -295,11 +344,12 @@ fn role_of(detail: &DerivedDetail, node: GodotNodeHandle) -> Option<EditRole> {
 pub(crate) fn on_expr_text_changed(
     trigger: On<ExprTextChanged>,
     detail: NonSend<DerivedDetail>,
+    agg: NonSend<AggregateDetail>,
     mut lens: ResMut<TextLenMap>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, node).is_none() {
+    if role_of(&detail, &agg, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -340,11 +390,12 @@ pub(crate) fn on_expr_text_changed(
 pub(crate) fn on_expr_completion(
     trigger: On<ExprCompletionRequested>,
     detail: NonSend<DerivedDetail>,
+    agg: NonSend<AggregateDetail>,
     doc: Res<EditorDoc>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    let Some(role) = role_of(&detail, node) else {
+    let Some(role) = role_of(&detail, &agg, node) else {
         return;
     };
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -354,9 +405,10 @@ pub(crate) fn on_expr_completion(
         return;
     };
     let sel = doc.selected_derived.max(0) as usize;
+    let agg_sel = doc.selected_aggregate.max(0) as usize;
 
     let before = caret_before(&edit);
-    let opts = completion_options(role, sel, &detail, raw, &before);
+    let opts = completion_options(role, sel, agg_sel, &detail, &agg, raw, &before);
     let preview: Vec<&str> = opts.iter().take(30).map(|o| o.text.as_str()).collect();
     dev_log(format!(
         "code_completion_requested role={role:?} before={before:?} 候选数={} {preview:?}",
@@ -495,16 +547,26 @@ fn last_word(s: &str) -> String {
 fn completion_options(
     role: EditRole,
     sel: usize,
+    agg_sel: usize,
     detail: &DerivedDetail,
+    agg: &AggregateDetail,
     raw: &Value,
     before: &str,
 ) -> Vec<CompOpt> {
+    let is_agg = matches!(role, EditRole::AggWhere | EditRole::AggExpr);
     // 1) 成员引用：光标紧跟 `属主.` 后（或正在输入其成员词），只给该属主下的后缀候选。
     if let Some(owner) = member_owner(before) {
+        if is_agg {
+            return agg_member_pool(raw, &owner).unwrap_or_default();
+        }
         return member_pool(detail, raw, sel, &owner).unwrap_or_default();
     }
     // 2) 整词引用：给完整候选（含函数/关键字），由 CodeEdit 按光标前的词过滤。
-    full_pool(role, detail, raw, sel, before)
+    if is_agg {
+        agg_full_pool(role, agg, raw, agg_sel, before)
+    } else {
+        full_pool(role, detail, raw, sel, before)
+    }
 }
 
 /// 详情 from 下拉当前选择；为空回退 raw。
@@ -549,8 +611,12 @@ fn derived_at(raw: &Value, sel: usize) -> Option<&Value> {
     raw.get("scheme")?.get("derived")?.as_array()?.get(sel)
 }
 
+fn agg_at(raw: &Value, sel: usize) -> Option<&Value> {
+    raw.get("scheme")?.get("aggregates")?.as_array()?.get(sel)
+}
+
 /// 某“表”（源或派生）可引用的列名。派生若未显式定义列（透传视图），则沿用其 from 表列。
-fn table_columns(raw: &Value, id: &str) -> Option<Vec<String>> {
+pub(crate) fn table_columns(raw: &Value, id: &str) -> Option<Vec<String>> {
     table_columns_depth(raw, id, 0)
 }
 
@@ -631,6 +697,19 @@ fn param_names(raw: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 已声明的聚合指标 id（按声明顺序）。
+fn agg_ids(raw: &Value) -> Vec<String> {
+    raw.get("scheme")
+        .and_then(|s| s.get("aggregates"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.get("id").and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 成员池：`属主.` 后的可选项。属主必须是已识别的命名空间（参数/聚合/表 id）。
 fn member_pool(
     detail: &DerivedDetail,
@@ -642,19 +721,9 @@ fn member_pool(
     if owner == "参数" {
         return Some(param_names(raw).into_iter().map(comp).collect());
     }
-    // `聚合.` → 已声明聚合 id（为后续聚合页预留）
+    // `聚合.` → 已声明聚合 id
     if owner == "聚合" {
-        let aggs: Vec<String> = raw
-            .get("scheme")
-            .and_then(|s| s.get("aggregates"))
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.get("id").and_then(Value::as_str).map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        return Some(aggs.into_iter().map(comp).collect());
+        return Some(agg_ids(raw).into_iter().map(comp).collect());
     }
     // 当前派生自身（其视图列，含面板上刚输入的列名）：
     if let Some((own_id, cols)) = own_view(detail, raw, sel)
@@ -733,6 +802,77 @@ fn full_pool(
     // 带上一对括号，用户确认后由 place_caret_inside_parens 把光标移到括号中间。
     if role == EditRole::DerivedColExpr {
         for f in FUNC_NAMES {
+            push_uniq(&mut out, format!("{}()", styled(f, lower)), OptKind::Func);
+        }
+    }
+    out
+}
+
+// ---------- 聚合指标输入框的候选（补充） ----------
+
+/// 聚合详情 from 下拉当前选择；为空回退 raw。
+fn agg_live_from(agg: &AggregateDetail, raw: &Value, sel: usize) -> Option<String> {
+    if let Some(from) = agg.from_btn.as_ref() {
+        let t = from.get_text().to_string().trim().to_string();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    agg_at(raw, sel)?.get("from")?.as_str().map(String::from)
+}
+
+/// 聚合输入框的成员池：`参数.` → 参数名、`聚合.` → 指标 id、`{表}.` → 表列。
+/// 不含“本视图自身”——聚合结果没有可引用的成员列。
+fn agg_member_pool(raw: &Value, owner: &str) -> Option<Vec<CompOpt>> {
+    if owner == "参数" {
+        return Some(param_names(raw).into_iter().map(comp).collect());
+    }
+    if owner == "聚合" {
+        return Some(agg_ids(raw).into_iter().map(comp).collect());
+    }
+    if let Some(cols) = table_columns(raw, owner) {
+        return Some(cols.into_iter().map(comp).collect());
+    }
+    None
+}
+
+/// 聚合 where / expr 的整词候选：来源表列 + 关键字（expr 再给 参数/前序聚合/函数）。
+fn agg_full_pool(
+    role: EditRole,
+    agg: &AggregateDetail,
+    raw: &Value,
+    sel: usize,
+    before: &str,
+) -> Vec<CompOpt> {
+    let mut out: Vec<CompOpt> = Vec::new();
+    let lower = prefer_lower(before);
+    // 当前 from 表列（行内列，聚合表达式与 where 的主体）。
+    if let Some(from) = agg_live_from(agg, raw, sel)
+        && let Some(cols) = table_columns(raw, &from)
+    {
+        for c in cols {
+            push_uniq(&mut out, format!("{from}.{c}"), OptKind::Ref);
+        }
+    }
+    // 参数 / 前序聚合：仅 expr 可引用（where 是逐行过滤，这两类引用求值不了）。
+    if role == EditRole::AggExpr {
+        for p in param_names(raw) {
+            push_uniq(&mut out, format!("参数.{p}"), OptKind::Ref);
+        }
+        for id in agg_ids(raw) {
+            push_uniq(&mut out, format!("聚合.{id}"), OptKind::Ref);
+        }
+    }
+    // 语法关键字：where 与 expr 都可用。
+    for kw in KEYWORD_NAMES {
+        push_uniq(&mut out, styled(kw, lower), OptKind::Kw);
+    }
+    // 函数/聚合关键字：仅 expr（行集聚合在此语境才有意义）；GROUP_BY 是派生组键专用，不提示。
+    if role == EditRole::AggExpr {
+        for f in FUNC_NAMES {
+            if f.eq_ignore_ascii_case("group_by") {
+                continue;
+            }
             push_uniq(&mut out, format!("{}()", styled(f, lower)), OptKind::Func);
         }
     }

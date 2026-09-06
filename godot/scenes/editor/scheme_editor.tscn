@@ -295,13 +295,132 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 2
 
+[node name="聚合指标" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="AggHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标"]
+layout_mode = 2
+
+[node name="AggHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
+layout_mode = 2
+text = "聚合指标：把某来源表按人（group_by 列）汇总成“每人一行”的值（如请假天数/超额判断），供计算字段引用（写作 聚合.指标id）。表达式里引用源列要带前缀，如 qingjia.天数。"
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddAggBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
+layout_mode = 2
+text = "+ 新增指标"
+
+[node name="PickRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(88, 0)
+text = "编辑指标："
+
+[node name="AggPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="DelAggBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow"]
+layout_mode = 2
+text = "删除当前指标"
+
+[node name="DetailScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="DetailVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "指标详情（先新增指标）"
+
+[node name="IdRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(132, 0)
+text = "指标 id："
+
+[node name="AggIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 请假超总天数（表达式以 聚合.该id 引用；改名失焦即全方案同步）"
+
+[node name="FromRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="FromLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(132, 0)
+text = "来源表 from："
+
+[node name="AggFromSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+tooltip_text = "对哪个数据源/派生表做汇总（下拉切换后分组列选项同步刷新）"
+
+[node name="GroupRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="GroupLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/GroupRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(132, 0)
+text = "分组列 group_by："
+
+[node name="AggGroupSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/GroupRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+tooltip_text = "按 from 表的哪一列把行归到“每人”（通常为主键列，如 姓名）"
+
+[node name="WhereRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WhereLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/WhereRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(132, 0)
+text = "行过滤 where："
+
+[node name="AggWhereEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/WhereRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "留空=不过滤；引用带前缀，如 qingjia.类型 != '公'"
+
+[node name="ExprRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ExprLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/ExprRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(132, 0)
+text = "表达式 expr："
+
+[node name="AggExprEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/ExprRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "按组求值，如 SUM(qingjia.天数) / 聚合.请假超总天数 >= 参数.请假超过天数"
+
 [node name="规划" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
 layout_mode = 2
 
 [node name="PlanHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/规划"]
 layout_mode = 2
 autowrap_mode = 2
-text = "聚合指标 / 计算分组 / 输出 编辑：后续迭代"
+text = "计算分组 / 输出 编辑：后续迭代"
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

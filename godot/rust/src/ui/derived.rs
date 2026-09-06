@@ -23,6 +23,7 @@ use godot::prelude::Gd;
 use godot_bevy::prelude::{GodotAccess, GodotNodeHandle, GodotSignals};
 use tracing::info;
 
+use super::aggregates::{self, AggregateDetail as AggDetail};
 use super::editor::{EditorDoc, EditorNodes, EditorRefs};
 use super::events::{
     AddDerivedClicked, AddDerivedFieldClicked, DerivedFieldRemoveClicked, DerivedPicked,
@@ -90,7 +91,7 @@ fn clear_children(container: &mut VBoxContainer) {
 }
 
 /// 全部候选表 id：sources id + 已声明 derived id（保持声明顺序）。
-fn table_candidates(doc: &EditorDoc) -> Vec<String> {
+pub(crate) fn table_candidates(doc: &EditorDoc) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(scheme) = doc.raw.as_ref().and_then(|r| r.get("scheme")) {
         if let Some(srcs) = scheme.get("sources").and_then(|v| v.as_array()) {
@@ -357,7 +358,7 @@ pub fn connect_derived_signals(
     if let Some(edit) = detail.where_edit.clone() {
         let handle = GodotNodeHandle::new(edit);
         if detail.where_connected != Some(handle) {
-            connect_expr_signals(&text_sig, &comp_sig, &enter_sig, &exit_sig, handle);
+            expr::connect_code_edit_signals(&text_sig, &comp_sig, &enter_sig, &exit_sig, handle);
             detail.where_connected = Some(handle);
         }
     }
@@ -365,7 +366,7 @@ pub fn connect_derived_signals(
     while detail.expr_connected < detail.field_expr.len() {
         let edit = detail.field_expr[detail.expr_connected].clone();
         let handle = GodotNodeHandle::new(edit);
-        connect_expr_signals(&text_sig, &comp_sig, &enter_sig, &exit_sig, handle);
+        expr::connect_code_edit_signals(&text_sig, &comp_sig, &enter_sig, &exit_sig, handle);
         detail.expr_connected += 1;
     }
     // 派生 id / 视图列名输入框失焦 → 改名即同步。
@@ -386,29 +387,6 @@ pub fn connect_derived_signals(
         });
         detail.name_focus_connected += 1;
     }
-}
-
-/// 给一个表达式 CodeEdit 接上 text_changed / code_completion_requested / 焦点信号。
-#[allow(clippy::too_many_arguments)]
-fn connect_expr_signals(
-    text_sig: &GodotSignals<ExprTextChanged>,
-    comp_sig: &GodotSignals<ExprCompletionRequested>,
-    enter_sig: &GodotSignals<ExprFocusEntered>,
-    exit_sig: &GodotSignals<ExprFocusExited>,
-    handle: GodotNodeHandle,
-) {
-    text_sig.connect(handle, "text_changed", None, |_a, n, _e| {
-        Some(ExprTextChanged { node: n })
-    });
-    comp_sig.connect(handle, "code_completion_requested", None, |_a, n, _e| {
-        Some(ExprCompletionRequested { node: n })
-    });
-    enter_sig.connect(handle, "focus_entered", None, |_a, n, _e| {
-        Some(ExprFocusEntered { node: n })
-    });
-    exit_sig.connect(handle, "focus_exited", None, |_a, n, _e| {
-        Some(ExprFocusExited { node: n })
-    });
 }
 
 // ---------- 增删（观察者） ----------
@@ -523,12 +501,15 @@ pub fn on_add_derived(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
-    // 先把当前详情面板未保存的编辑提交回 raw，避免新增/重建把上一个派生的编辑冲掉。
+    // 先把当前详情面板未保存的编辑提交回 raw，避免新增/重建把上一个派生的编辑冲掉；
+    // 聚合页面板也一并落库（它的编辑同样要参与改名传播）。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
+    aggregates::flush_open(&mut doc, &adetail);
     let renames = flush_propagate(&before, &mut doc);
     let candidates = table_candidates(&doc);
     let n = {
@@ -546,6 +527,9 @@ pub fn on_add_derived(
     };
     doc.selected_derived = n as i32 - 1;
     render_all(nodes, &doc, &mut detail, &mut godot);
+    if !renames.is_empty() {
+        aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
     }
@@ -562,6 +546,7 @@ pub fn on_derived_picked(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -579,9 +564,13 @@ pub fn on_derived_picked(
     // 切换选中前先把上一个派生详情里的未保存编辑落回 raw，切回时仍在。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
+    aggregates::flush_open(&mut doc, &adetail);
     let renames = flush_propagate(&before, &mut doc);
     doc.selected_derived = idx as i32;
     render_all(nodes, &doc, &mut detail, &mut godot);
+    if !renames.is_empty() {
+        aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    }
     let ds = derived_arr(&doc);
     let id = ds
         .get(doc.selected_derived as usize)
@@ -600,12 +589,14 @@ pub fn on_remove_current(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 先把当前详情面板未保存的编辑提交回 raw，避免删除重建时丢失。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
+    aggregates::flush_open(&mut doc, &adetail);
     let renames = flush_propagate(&before, &mut doc);
     let idx = doc.selected_derived.max(0) as usize;
     let removed_id = {
@@ -628,6 +619,9 @@ pub fn on_remove_current(
         doc.selected_derived = last.max(0);
     }
     render_all(nodes, &doc, &mut detail, &mut godot);
+    if !renames.is_empty() {
+        aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
     }
@@ -639,12 +633,14 @@ pub fn on_add_field(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 先把详情面板未保存的编辑提交回 raw，避免重建列网格把已编辑列还原。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
+    aggregates::flush_open(&mut doc, &adetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_derived as usize;
     {
@@ -670,6 +666,9 @@ pub fn on_add_field(
         }));
     }
     render_all(nodes, &doc, &mut detail, &mut godot);
+    if !renames.is_empty() {
+        aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
     }
@@ -685,6 +684,7 @@ pub fn on_remove_field(
     refs: Res<EditorRefs>,
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
+    mut adetail: bevy::prelude::NonSendMut<AggDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -692,6 +692,7 @@ pub fn on_remove_field(
     // 先把详情面板未保存的编辑提交回 raw，避免删列重建把其它已编辑列还原。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
+    aggregates::flush_open(&mut doc, &adetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_derived as usize;
     let removed = {
@@ -714,6 +715,9 @@ pub fn on_remove_field(
         name
     };
     render_all(nodes, &doc, &mut detail, &mut godot);
+    if !renames.is_empty() {
+        aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
     }

@@ -5,11 +5,14 @@
 //! - `schemes`：用户方案库（user://schemes）位置与播种；
 //! - `editor`：方案编辑器（参数编辑/保存/校验）；
 //! - `sources`：编辑器数据源/列映射页签；
+//! - `derived`：编辑器派生视图页签；
+//! - `aggregates`：编辑器聚合指标页签；
 //! - `nav`：主场景路由（顶栏导航 → 页面场景的生成/切换）；
 //! - `setup`：运行台场景节点句柄解析与初始化；
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
 //! - `devshot`：开发自检（KPI_SHOT=1 截图）。
 
+pub mod aggregates;
 pub mod derived;
 pub mod devshot;
 pub mod editor;
@@ -25,12 +28,13 @@ pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddSourceClicked, BrowseMonthClicked,
-    ColRemoveClicked, DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked,
-    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
-    EditorValidateClicked, ExprCompletionRequested, ExprFocusEntered, ExprFocusExited,
-    ExprTextChanged, MonthDirPicked, NameFieldFocusLost, ParamRemoveClicked, ParamTypeChosen,
-    ParamValueEdited, RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage,
+    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked,
+    AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked, ColRemoveClicked,
+    DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked, EditorLoadClicked,
+    EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
+    ExprCompletionRequested, ExprFocusEntered, ExprFocusExited, ExprTextChanged, MonthDirPicked,
+    NameFieldFocusLost, ParamRemoveClicked, ParamTypeChosen, ParamValueEdited,
+    RemoveCurrentAggregate, RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage,
     SourceColsClicked, SourceRemoveClicked, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
@@ -67,6 +71,10 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<RemoveCurrentDerived>::default())
             .add_plugins(GodotSignalsPlugin::<AddDerivedFieldClicked>::default())
             .add_plugins(GodotSignalsPlugin::<DerivedFieldRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddAggregateClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AggregatePicked>::default())
+            .add_plugins(GodotSignalsPlugin::<RemoveCurrentAggregate>::default())
+            .add_plugins(GodotSignalsPlugin::<AggFromChanged>::default())
             .add_plugins(GodotSignalsPlugin::<ExprTextChanged>::default())
             .add_plugins(GodotSignalsPlugin::<ExprCompletionRequested>::default())
             .add_plugins(GodotSignalsPlugin::<ExprFocusEntered>::default())
@@ -83,6 +91,7 @@ impl Plugin for UiPlugin {
         app.insert_non_send_resource(sources::SourceRows::default());
         app.insert_non_send_resource(sources::ColRows::default());
         app.insert_non_send_resource(derived::DerivedDetail::default());
+        app.insert_non_send_resource(aggregates::AggregateDetail::default());
 
         app.add_systems(bevy::prelude::Startup, nav::setup_router);
         app.add_systems(
@@ -93,6 +102,7 @@ impl Plugin for UiPlugin {
                 editor::connect_param_signals,
                 sources::connect_sources_signals,
                 derived::connect_derived_signals,
+                aggregates::connect_aggregates_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -121,6 +131,10 @@ impl Plugin for UiPlugin {
         app.add_observer(derived::on_remove_current);
         app.add_observer(derived::on_add_field);
         app.add_observer(derived::on_remove_field);
+        app.add_observer(aggregates::on_add_aggregate);
+        app.add_observer(aggregates::on_agg_picked);
+        app.add_observer(aggregates::on_remove_current);
+        app.add_observer(aggregates::on_agg_from_changed);
         app.add_observer(expr::on_expr_text_changed);
         app.add_observer(expr::on_expr_completion);
         app.add_observer(expr::on_expr_focus_entered);

@@ -1,4 +1,4 @@
-//! 引用改名传播：数据源 id / 列别名 / 派生 id / 视图列名 / 参数名被改名后，
+//! 引用改名传播：数据源 id / 列别名 / 派生 id / 视图列名 / 聚合指标 id / 参数名被改名后，
 //! 把方案里引用这些名字的字符串同步改写（from、表达式、where、parse/merge 等）。
 //!
 //! DSL 约定“表引用一律带命名空间前缀”，因此引用只会以两种形态出现：
@@ -132,6 +132,18 @@ fn detect(before: &Value, after: &Value) -> RenameDiff {
                     push_member(&mut diff, &new_id, old_name, new_name, "视图列名");
                 }
             }
+        }
+    }
+
+    // 聚合指标：id 改名（表达式里以 `聚合.{id}` 引用）。
+    if let (Some(before_aggs), Some(after_aggs)) =
+        (arr(b.get("aggregates")), arr(a.get("aggregates")))
+        && before_aggs.len() == after_aggs.len()
+    {
+        for (old_item, new_item) in before_aggs.iter().zip(after_aggs.iter()) {
+            let old_id = field_of(old_item, "id");
+            let new_id = field_of(new_item, "id");
+            push_member(&mut diff, "聚合", old_id, new_id, "聚合指标");
         }
     }
     diff
@@ -678,6 +690,37 @@ mod tests {
         assert!(!logs.is_empty());
         assert_eq!(after["scheme"]["derived"][1]["from"], "补课");
         assert_eq!(after["scheme"]["derived"][1]["where"], "补课.节数 > 0");
+    }
+
+    #[test]
+    fn propagate_renames_agg_id() {
+        let before = json!({
+            "scheme": {
+                "aggregates": [
+                    { "id": "请假超总天数", "from": "qingjia", "group_by": "姓名", "expr": "SUM(qingjia.天数)" },
+                    { "id": "请假超额", "from": "qingjia", "group_by": "姓名", "expr": "聚合.请假超总天数 >= 参数.请假超过天数" }
+                ],
+                "groups": [{
+                    "id": "fxp",
+                    "fields": [
+                        { "name": "课时S", "expr": "IF(聚合.请假超额, 0, keshi.课时 ?? 0)" }
+                    ],
+                    "overrides": []
+                }]
+            }
+        });
+        let mut after = before.clone();
+        after["scheme"]["aggregates"][0]["id"] = json!("请假总天数");
+        let logs = propagate(&before, &mut after);
+        assert!(!logs.is_empty());
+        assert_eq!(
+            after["scheme"]["aggregates"][1]["expr"],
+            "聚合.请假总天数 >= 参数.请假超过天数"
+        );
+        assert_eq!(
+            after["scheme"]["groups"][0]["fields"][0]["expr"],
+            "IF(聚合.请假超额, 0, keshi.课时 ?? 0)"
+        );
     }
 
     #[test]
