@@ -225,10 +225,11 @@ pub struct ColumnDef {
     pub expr: Option<String>,
 }
 
-/// 派生明细（表视图）：先做行整理（主从合并），再做过滤，最后按“视图列定义”
-/// 逐行/分组产出新表。`from` 可引用 source 或先前 derived（视图可链式叠加）。
-/// `columns` 为空时表示“原样透传输入行”（配合 merge/when 作行整理视图）。
+/// 派生明细（表视图）：先做行整理（主从合并），再做行过滤（where），最后按
+/// “视图列定义”逐行/分组产出新表。`from` 可引用 source 或先前 derived（视图可链式叠加）。
+/// `columns` 为空时表示“原样透传输入行”（配合 merge/where 作行整理视图）。
 /// 是否有分组由某列的 `GROUP_BY(...)` 表达式决定，无独立 group_by 字段。
+/// 行过滤统一为 `where`（对有无 GROUP_BY 均适用，SQL WHERE 语义）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DerivedSpec {
@@ -238,22 +239,30 @@ pub struct DerivedSpec {
     /// 可选：主从续行合并（见 MergeSpec）。
     #[serde(default)]
     pub merge: Option<MergeSpec>,
-    /// 行过滤表达式（空 = 全部行；引用同样带前缀）。
-    #[serde(default)]
-    pub when: Option<String>,
+    /// 行过滤表达式（空 = 全部行；引用带 `{from}.` 前缀）。
+    #[serde(default, rename = "where")]
+    pub where_: Option<String>,
     /// 视图输出列定义（顺序即输出顺序；空 = 原样透传）。
     #[serde(default)]
     pub columns: Vec<ColumnDef>,
 }
 
 /// 聚合指标（按 key 对某明细求值）。
+///
+/// 行过滤在 `where` 字段（SQL WHERE，先裁行再分组/求值）；`expr` 为纯表达式，
+/// 行内列带 `{from}.` 前缀（如 `SUM(qingjia.天数)`），引用其它聚合用 `聚合.{id}`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AggregateSpec {
     pub id: String,
+    /// 数据来源（source / derived 的 id）。
     pub from: String,
+    /// 按此列分组（from 表的列 alias，通常为 key_field）。
     pub group_by: String,
-    /// 聚合表达式，如 `SUM(天数 WHERE 类型 != '公')`。
+    /// 聚合前行过滤（空 = 全部行；引用带 `{from}.` 前缀）。
+    #[serde(default, rename = "where")]
+    pub where_: Option<String>,
+    /// 聚合表达式，如 `SUM(qingjia.天数)`。
     pub expr: String,
 }
 
@@ -522,7 +531,7 @@ impl Scheme {
             }
         }
 
-        // —— 派生/聚合 的 from 引用 ——
+        // —— 派生/聚合 的 from 引用与表达式前缀 ——
         let refs_of = |id: &str| {
             self.sources.iter().any(|s| s.id == id)
                 || self.derived.iter().any(|d| d.id == id)
@@ -559,7 +568,7 @@ impl Scheme {
                 ));
             }
             // 列表达式语法与命名空间（引用一律带前缀：from / 本视图 / 参数）
-            validate_view_expr(&mut out, d, &format!("derived.{}", d.id), &d.when);
+            validate_view_expr(&mut out, d, &format!("derived.{} where", d.id), &d.where_);
             for c in &d.columns {
                 validate_view_expr(
                     &mut out,
@@ -576,6 +585,19 @@ impl Scheme {
                     format!("from 引用了不存在的 id: {}", a.from),
                 ));
             }
+            // 聚合的 where / expr：引用带 {from} / 聚合 / 参数 前缀。
+            validate_agg_expr(
+                &mut out,
+                a,
+                &format!("aggregates.{} where", a.id),
+                &a.where_,
+            );
+            validate_agg_expr(
+                &mut out,
+                a,
+                &format!("aggregates.{} expr", a.id),
+                &Some(a.expr.clone()),
+            );
         }
 
         // —— 分组字段/覆盖 ——
@@ -658,7 +680,7 @@ fn is_group_key(node: &Node) -> bool {
     )
 }
 
-/// 视图表达式（when / 列 expr）语法与命名空间校验：引用必须带前缀，
+/// 视图表达式（where / 列 expr）语法与命名空间校验：引用必须带前缀，
 /// 且前缀只能是 {from}（输入行）、{本视图 id}（前列）、`参数`。
 fn validate_view_expr(out: &mut Vec<Issue>, d: &DerivedSpec, loc: &str, expr: &Option<String>) {
     let Some(text) = expr.as_deref() else { return };
@@ -721,11 +743,41 @@ fn collect_paths(node: &Node, out: &mut Vec<Vec<String>>) {
                 collect_paths(a, out);
             }
         }
-        Node::Agg { expr, cond, .. } => {
-            collect_paths(expr, out);
-            if let Some(c) = cond {
-                collect_paths(c, out);
-            }
+        Node::Agg { expr, .. } => collect_paths(expr, out),
+    }
+}
+
+/// 聚合的 where / expr 引用前缀校验：允许 `{from}.列`（行内）、`聚合.x`（前序聚合）、`参数.x`。
+fn validate_agg_expr(out: &mut Vec<Issue>, a: &AggregateSpec, loc: &str, expr: &Option<String>) {
+    let Some(text) = expr.as_deref() else { return };
+    let node = match calc::parse(text) {
+        Ok(n) => n,
+        Err(e) => {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!("表达式解析失败: {e}"),
+            ));
+            return;
+        }
+    };
+    let mut paths = Vec::new();
+    collect_paths(&node, &mut paths);
+    let allowed: Vec<&str> = vec![a.from.as_str(), "聚合", "参数"];
+    for p in paths {
+        if p.len() == 1 {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!(
+                    "引用需带命名空间前缀（如 {}.列 / 聚合.x / 参数.x）：{}",
+                    a.from,
+                    p.join(".")
+                ),
+            ));
+        } else if !allowed.contains(&p[0].as_str()) {
+            out.push(Issue::error(
+                loc.to_string(),
+                format!("未知命名空间前缀 {}：应为 {} / 聚合 / 参数", p[0], a.from),
+            ));
         }
     }
 }
@@ -759,7 +811,7 @@ mod tests {
                     "id": "fxp",
                     "name": "非校聘",
                     "fields": [
-                        { "name": "课时S", "expr": "IF(false, 0, 课时.课时 ?? 0)" },
+                        { "name": "课时S", "expr": "IF(false, 0, keshi.课时 ?? 0)" },
                         { "name": "课时费S", "expr": "课时S * 参数.课时费" }
                     ]
                 }

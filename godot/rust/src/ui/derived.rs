@@ -2,7 +2,7 @@
 //!
 //! 派生表（每行一个派生）只作导航：`序号 | id | 详情 | 删除`。
 //! 选中（点「详情」）后，下方详情面板编辑该派生的全部属性：
-//! - 基本：派生 id / 来源表 from（下拉）/ 合并续列 on / 过滤 when；
+//! - 基本：派生 id / 来源表 from（下拉）/ 合并续列 on / 行过滤 where；
 //! - 视图列 columns（表格：列名 + 表达式）。表达式一律带命名空间前缀：
 //!   `{from}.列`（输入行列，可作 SUM(...) 聚合）、`{视图id}.列`（本视图前列）、`参数.x`；
 //!   某列写 `GROUP_BY({from}.列)` 即声明为组键（全视图至多一列），其余列按组求值。
@@ -57,8 +57,8 @@ pub struct DerivedDetail {
     pub from_btn: Option<Gd<OptionButton>>,
     /// 合并续列输入。
     pub on_edit: Option<Gd<LineEdit>>,
-    /// 过滤 when 输入。
-    pub when_edit: Option<Gd<LineEdit>>,
+    /// 行过滤 where 输入。
+    pub where_edit: Option<Gd<LineEdit>>,
     pub field_name: Vec<Gd<LineEdit>>,
     pub field_expr: Vec<Gd<LineEdit>>,
     pub field_del: Vec<(i32, Gd<Button>)>,
@@ -70,7 +70,7 @@ impl DerivedDetail {
         self.id_edit = None;
         self.from_btn = None;
         self.on_edit = None;
-        self.when_edit = None;
+        self.where_edit = None;
         self.field_name.clear();
         self.field_expr.clear();
         self.field_del.clear();
@@ -244,7 +244,7 @@ fn render_detail(
     let mut id_edit = godot.get::<LineEdit>(nodes.derived_id_edit);
     let mut from_btn = godot.get::<OptionButton>(nodes.derived_from_select);
     let mut on_edit = godot.get::<LineEdit>(nodes.derived_on_edit);
-    let mut when_edit = godot.get::<LineEdit>(nodes.derived_when_edit);
+    let mut where_edit = godot.get::<LineEdit>(nodes.derived_where_edit);
     let mut field_box = godot.get::<VBoxContainer>(nodes.derived_field_box);
     clear_children(&mut field_box);
 
@@ -268,7 +268,7 @@ fn render_detail(
                     .join("、")
             })
             .unwrap_or_default();
-        let when = d.get("when").and_then(|v| v.as_str()).unwrap_or("");
+        let where_ = d.get("where").and_then(|v| v.as_str()).unwrap_or("");
 
         title.set_text(&format!("派生详情 · {}（第 {} 个）", id, sel + 1));
         id_edit.set_text(id);
@@ -285,7 +285,7 @@ fn render_detail(
             from_btn.select(0);
         }
         on_edit.set_text(&on);
-        when_edit.set_text(when);
+        where_edit.set_text(where_);
 
         // 视图列表格（含表头）：列名 + 表达式（expr 空 = 同名透传）
         let columns = d
@@ -340,11 +340,11 @@ fn render_detail(
         detail.id_edit = Some(id_edit);
         detail.from_btn = Some(from_btn);
         detail.on_edit = Some(on_edit);
-        detail.when_edit = Some(when_edit);
+        detail.where_edit = Some(where_edit);
     } else {
         title.set_text("派生详情（先新增派生）");
         id_edit.set_text("");
-        when_edit.set_text("");
+        where_edit.set_text("");
         on_edit.set_text("");
         empty_hint(&mut field_box, "无视图列", "DerivedFieldHint");
     }
@@ -406,7 +406,7 @@ pub fn on_add_derived(
         ds.push(serde_json::json!({
             "id": format!("派生{}", ds.len() + 1),
             "from": candidates.first().cloned().unwrap_or_default(),
-            "when": serde_json::Value::Null,
+            "where": serde_json::Value::Null,
             "columns": []
         }));
         ds.len()
@@ -551,7 +551,7 @@ pub fn on_remove_field(
 
 // ---------- 写回（保存 / 校验前调用） ----------
 
-/// 当前选中派生的详情（id/from/on/when/视图列）整体写回 raw 的派生项。
+/// 当前选中派生的详情（id/from/on/where/视图列）整体写回 raw 的派生项。
 pub fn write_back(
     raw: &mut serde_json::Value,
     detail: &DerivedDetail,
@@ -599,12 +599,12 @@ pub fn write_back(
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect();
-    let when = detail
-        .when_edit
+    let where_ = detail
+        .where_edit
         .as_ref()
         .map(|e| e.get_text().to_string())
         .unwrap_or_default();
-    let when = when.trim().to_string();
+    let where_ = where_.trim().to_string();
 
     // 视图列（列名 + 表达式；expr 空 = 同名透传）
     let mut columns = Vec::new();
@@ -634,8 +634,8 @@ pub fn write_back(
     if !on.is_empty() {
         d["merge"] = serde_json::json!({ "on": on });
     }
-    if !when.is_empty() {
-        d["when"] = serde_json::Value::String(when);
+    if !where_.is_empty() {
+        d["where"] = serde_json::Value::String(where_);
     }
     if !columns.is_empty() {
         d["columns"] = serde_json::Value::Array(columns);

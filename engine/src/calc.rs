@@ -1,10 +1,11 @@
 //! calc：表达式 DSL（Excel 风格子集）。
 //!
 //! M1 第一块地基。语法要点：
-//! - 数值 / 字符串（单双引号）/ 布尔；中文标识符；点分路径（`参数.课时费`、`课时.课时`）；
+//! - 数值 / 字符串（单双引号）/ 布尔；中文标识符；点分路径（`参数.课时费`、`qingjia.课时`）；
 //! - `??` 空值回退；算术、比较、AND/OR/NOT；
 //! - `IF(c,a,b)` 惰性三参；内置函数 MIN/MAX/ROUND/ABS；
-//! - 聚合写法 `SUM(<expr> WHERE <cond>)`（本阶段完成解析，行作用域求值见 M1 1.1-待办）。
+//! - 聚合 `SUM/COUNT/AVG/MIN/MAX(<expr>)`：在行集合上下文求值（行内列带 `{表}.` 前缀）；
+//!   表达式内**不支持 WHERE 子句**——行过滤统一由派生/聚合的 `where` 字段（SQL WHERE）承担。
 //!
 //! 求值依赖外部回调做"路径 → 值"解析（避免本模块与 ECS/表格耦合）。
 
@@ -165,11 +166,10 @@ pub enum Node {
         name: String,
         args: Vec<Node>,
     },
-    /// `SUM(expr WHERE cond)` 等聚合（解析完成；行作用域求值后续实现）。
+    /// 聚合（在行集合上下文按行取值后归约）。
     Agg {
         op: String,
         expr: Box<Node>,
-        cond: Option<Box<Node>>,
     },
     Bin {
         op: BinOp,
@@ -431,15 +431,10 @@ impl Parser {
                     if let Tok::Ident(kw) = self.peek()
                         && kw.eq_ignore_ascii_case("where")
                     {
-                        // SUM(expr WHERE cond)
-                        self.next();
-                        let cond = self.parse_or()?;
-                        self.eat(&Tok::RParen)?;
-                        return Ok(Node::Agg {
-                            op: name.to_lowercase(),
-                            expr: Box::new(first),
-                            cond: Some(Box::new(cond)),
-                        });
+                        return Err(
+                            "表达式内不再支持 WHERE 子句；请把行过滤写到派生/聚合的 where 字段"
+                                .into(),
+                        );
                     }
                     if self.peek() == &Tok::Comma {
                         // 多参普通函数，如 MAX(0, x)
@@ -456,7 +451,6 @@ impl Parser {
                         return Ok(Node::Agg {
                             op: name.to_lowercase(),
                             expr: Box::new(first),
-                            cond: None,
                         });
                     }
                     return Ok(Node::Call {
@@ -519,7 +513,7 @@ pub fn eval_with(node: &Node, lookup: Lookup, extra: ExtraFunc<'_>) -> Result<Va
     eval_core(node, lookup, None, None, extra)
 }
 
-/// 带行集合求值：其中 `SUM(expr WHERE cond)` 等聚合会在这些行上求值。
+/// 带行集合求值：其中 `SUM/COUNT(...)` 等聚合会在这些行上求值。
 pub fn eval_rows(node: &Node, lookup: Lookup, rows: &[Row]) -> Result<Value, String> {
     eval_core(node, lookup, Some(rows), None, None)
 }
@@ -592,18 +586,11 @@ fn eval_core(
                 eval_call(name, &vals)
             }
         }
-        Node::Agg { op, expr, cond } => {
+        Node::Agg { op, expr } => {
             let list = rows.ok_or_else(|| "聚合表达式缺少行集合上下文".to_string())?;
             let mut nums = Vec::new();
             let mut count = 0usize;
             for r in list {
-                let include = match cond {
-                    Some(c) => as_bool(&eval_core(c, lookup, None, Some(r), extra)?)?,
-                    None => true,
-                };
-                if !include {
-                    continue;
-                }
                 count += 1;
                 if op != "count" {
                     let v = eval_core(expr, lookup, None, Some(r), extra)?;
@@ -780,36 +767,42 @@ mod tests {
 
     #[test]
     fn aggregate_parses() {
-        // 行作用域求值待 M1-1.1；这里只验证语法可解析。
-        parse("SUM(天数 WHERE 类型 != '公')").expect("聚合表达式应可解析");
+        // 行集聚合：表达式内不再支持 WHERE 子句（行过滤由派生/聚合的 where 字段承担）。
+        parse("SUM(天数)").expect("聚合表达式应可解析");
         parse("MAX(0, 课时S - 参数.基础课时)").expect("普通调用应可解析");
+        // 内联 WHERE 语法已移除：`SUM(x WHERE c)` 应解析失败。
+        assert!(parse("SUM(天数 WHERE 类型 != '公')").is_err());
     }
 
     #[test]
     fn aggregate_row_eval() {
-        fn row(days: f64, ty: &str) -> Row {
+        fn row(days: f64) -> Row {
             let mut m = Row::new();
             m.insert("天数".to_string(), Value::Num(days));
-            m.insert("类型".to_string(), Value::Str(ty.to_string()));
             m
         }
-        let rows = vec![row(2.0, "事"), row(3.0, "公"), row(1.0, "病")];
-
-        let n = parse("SUM(天数 WHERE 类型 != '公')").unwrap();
-        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(3.0));
-
-        let n = parse("COUNT(天数 WHERE 类型 != '公')").unwrap();
-        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(2.0));
+        let rows = vec![row(2.0), row(3.0), row(1.0)];
 
         let n = parse("SUM(天数)").unwrap();
         assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(6.0));
 
+        let n = parse("COUNT(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(3.0));
+
         let n = parse("AVG(天数)").unwrap();
         assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(2.0));
 
-        // 无匹配行：SUM=0、COUNT=0
-        let n = parse("SUM(天数 WHERE 类型 = '产')").unwrap();
-        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(0.0));
+        let n = parse("MIN(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(1.0));
+        let n = parse("MAX(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &rows).unwrap(), Value::Num(3.0));
+
+        // 空行集：SUM=0、COUNT=0；MIN/MAX=∅
+        let empty: Vec<Row> = Vec::new();
+        let n = parse("SUM(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &empty).unwrap(), Value::Num(0.0));
+        let n = parse("MIN(天数)").unwrap();
+        assert_eq!(eval_rows(&n, &|_| None, &empty).unwrap(), Value::Empty);
     }
 
     #[test]

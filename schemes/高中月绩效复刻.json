@@ -104,7 +104,7 @@
       {
         "id": "bukesh",
         "from": "qingjia",
-        "when": "qingjia.替上课老师 != ''",
+        "where": "qingjia.替上课老师 != ''",
         "columns": [
           { "name": "姓名", "expr": "GROUP_BY(qingjia.替上课老师)" },
           { "name": "节数", "expr": "SUM(qingjia.节数)" },
@@ -117,25 +117,41 @@
         "id": "请假超总天数",
         "from": "qingjia",
         "group_by": "姓名",
-        "expr": "SUM(天数 WHERE 类型 != '公')"
+        "where": "qingjia.类型 != '公'",
+        "expr": "SUM(qingjia.天数)"
       },
       {
-        "id": "请假超额",
+        "id": "请假事假",
         "from": "qingjia",
         "group_by": "姓名",
-        "expr": "请假超总天数 >= 参数.请假超过天数"
+        "where": "qingjia.类型 = '事'",
+        "expr": "SUM(qingjia.天数)"
+      },
+      {
+        "id": "请假病假",
+        "from": "qingjia",
+        "group_by": "姓名",
+        "where": "qingjia.类型 = '病'",
+        "expr": "SUM(qingjia.天数)"
       },
       {
         "id": "请假扣款金额",
         "from": "qingjia",
         "group_by": "姓名",
-        "expr": "SUM(天数 WHERE 类型 = '事') * 参数.事假单价 + SUM(天数 WHERE 类型 = '病') * 参数.病假单价"
+        "expr": "聚合.请假事假 * 参数.事假单价 + 聚合.请假病假 * 参数.病假单价"
+      },
+      {
+        "id": "请假超额",
+        "from": "qingjia",
+        "group_by": "姓名",
+        "expr": "聚合.请假超总天数 >= 参数.请假超过天数"
       },
       {
         "id": "扣课天数",
         "from": "qingjia_jl",
         "group_by": "姓名",
-        "expr": "SUM(天数 WHERE 类型 != '婚' AND 类型 != '公' AND 类型 != '丧' AND 类型 != '产' AND (替上课老师 ?? '') != '')"
+        "where": "qingjia_jl.类型 != '婚' AND qingjia_jl.类型 != '公' AND qingjia_jl.类型 != '丧' AND qingjia_jl.类型 != '产' AND (qingjia_jl.替上课老师 ?? '') != ''",
+        "expr": "SUM(qingjia_jl.天数)"
       }
     ],
     "groups": [
@@ -144,24 +160,24 @@
         "name": "非校聘",
         "match_sheet": "非校聘",
         "fields": [
-          { "name": "课时S", "expr": "IF(请假超额, 0, keshi.课时 ?? 0)" },
-          { "name": "课时X", "expr": "IF(请假超额, 0, MAX(0, 课时S - 参数.基础课时))" },
-          { "name": "课时费S", "expr": "IF(请假超额, 0, 课时S * 参数.课时费)" },
-          { "name": "课时费X", "expr": "IF(请假超额, 0, 课时X * 参数.超课时费)" },
+          { "name": "课时S", "expr": "IF(聚合.请假超额, 0, keshi.课时 ?? 0)" },
+          { "name": "课时X", "expr": "IF(聚合.请假超额, 0, MAX(0, 课时S - 参数.基础课时))" },
+          { "name": "课时费S", "expr": "IF(聚合.请假超额, 0, 课时S * 参数.课时费)" },
+          { "name": "课时费X", "expr": "IF(聚合.请假超额, 0, 课时X * 参数.超课时费)" },
           { "name": "课时周费", "expr": "课时费S + 课时费X" },
           { "name": "课时月费", "expr": "课时周费 * 4" },
-          { "name": "考勤奖", "expr": "IF(请假超额, 0, 参数.考勤奖)" },
-          { "name": "岗位奖", "expr": "IF(请假超额, 0, gangwei.岗位奖 ?? 0)" },
-          { "name": "教研组长", "expr": "IF(请假超额, 空, IF(gangwei.教研组长 ?? 0 > 0, gangwei.教研组长 ?? 0, 空))" },
-          { "name": "年级组长", "expr": "IF(请假超额, 空, IF(gangwei.年级组长 ?? 0 > 0, gangwei.年级组长 ?? 0, 空))" },
-          { "name": "行政后勤", "expr": "IF(请假超额, 空, IF(gangwei.行政后勤 ?? 0 > 0, gangwei.行政后勤 ?? 0, 空))" },
-          { "name": "行、后", "expr": "IF(请假超额, 空, IF(gangwei.行后 ?? 0 > 0, gangwei.行后 ?? 0, 空))" },
-          { "name": "扣课时", "expr": "IF(请假超额, 空, IF(扣课天数 > 0 AND 课时周费 > 0, -(扣课天数 * 课时周费 / 5), 空))" },
-          { "name": "补课时", "expr": "IF(请假超额, 空, bukesh.费用)" },
-          { "name": "请假", "expr": "IF(请假超额, 空, IF(请假扣款金额 > 0, -MIN(请假扣款金额, 参数.请假扣款上限), 空))" },
-          { "name": "未参加升旗、集会", "expr": "IF(请假超额, 空, weicanjia.扣款)" },
-          { "name": "早读", "expr": "IF(请假超额, 空, IF(zaodu.小计 ?? 0 > 0, zaodu.小计 ?? 0, 空))" },
-          { "name": "班主任", "expr": "IF(请假超额, 空, IF(banzhuren.应发 ?? 0 > 0, banzhuren.应发 ?? 0, 空))" },
+          { "name": "考勤奖", "expr": "IF(聚合.请假超额, 0, 参数.考勤奖)" },
+          { "name": "岗位奖", "expr": "IF(聚合.请假超额, 0, gangwei.岗位奖 ?? 0)" },
+          { "name": "教研组长", "expr": "IF(聚合.请假超额, 空, IF(gangwei.教研组长 ?? 0 > 0, gangwei.教研组长 ?? 0, 空))" },
+          { "name": "年级组长", "expr": "IF(聚合.请假超额, 空, IF(gangwei.年级组长 ?? 0 > 0, gangwei.年级组长 ?? 0, 空))" },
+          { "name": "行政后勤", "expr": "IF(聚合.请假超额, 空, IF(gangwei.行政后勤 ?? 0 > 0, gangwei.行政后勤 ?? 0, 空))" },
+          { "name": "行、后", "expr": "IF(聚合.请假超额, 空, IF(gangwei.行后 ?? 0 > 0, gangwei.行后 ?? 0, 空))" },
+          { "name": "扣课时", "expr": "IF(聚合.请假超额, 空, IF(聚合.扣课天数 > 0 AND 课时周费 > 0, -(聚合.扣课天数 * 课时周费 / 5), 空))" },
+          { "name": "补课时", "expr": "IF(聚合.请假超额, 空, bukesh.费用)" },
+          { "name": "请假", "expr": "IF(聚合.请假超额, 空, IF(聚合.请假扣款金额 > 0, -MIN(聚合.请假扣款金额, 参数.请假扣款上限), 空))" },
+          { "name": "未参加升旗、集会", "expr": "IF(聚合.请假超额, 空, weicanjia.扣款)" },
+          { "name": "早读", "expr": "IF(聚合.请假超额, 空, IF(zaodu.小计 ?? 0 > 0, zaodu.小计 ?? 0, 空))" },
+          { "name": "班主任", "expr": "IF(聚合.请假超额, 空, IF(banzhuren.应发 ?? 0 > 0, banzhuren.应发 ?? 0, 空))" },
           { "name": "折扣额", "expr": "IF((教研组长 > 0) + (年级组长 > 0) + (行政后勤 > 0) + (班主任 > 0) >= 2, IF(班主任 > 0, 班主任, IF(行政后勤 > 0, 行政后勤, IF(年级组长 > 0, 年级组长, 教研组长))), IF(参数.是否对课时月费进行折扣, MIN(课时月费, 行政后勤 ?? 0), 0)) * 参数.折扣" },
           { "name": "折扣", "expr": "IF(折扣额 > 0, 折扣额, 空)" },
           { "name": "合计1", "expr": "课时月费 + 考勤奖 + 岗位奖 + 扣课时 + 补课时 + 请假 + 未参加升旗、集会 + 早读 - 折扣" },

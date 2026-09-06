@@ -2,8 +2,9 @@
 //!
 //! 数据流：sources（物理表，文件唯一）→ derived（表视图，可链式）→
 //! aggregates（按 key 聚合）/ groups（字段求值）/ outputs。
-//! derived 视图变换顺序：主从合并(merge) → 行过滤(when) →
+//! derived 视图变换顺序：主从合并(merge) → 行过滤(where) →
 //! 视图列 columns 逐行求值 / 某列 `GROUP_BY(...)` 时按组汇总。
+//! 聚合变换顺序：行过滤(where) → 按 key 分组 → 对组行求 expr。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -142,22 +143,22 @@ pub fn compute_derived(
         None => in_rows.to_vec(),
     };
 
-    // 1) 过滤（when 引用同样带 from 前缀，先归并）
-    let mut when_node = spec
-        .when
+    // 1) 过滤（where 引用同样带 from 前缀，先归并）
+    let mut where_node = spec
+        .where_
         .as_deref()
         .map(calc::parse)
         .transpose()
-        .map_err(|e| Error::Runtime(format!("derived.{} when 解析失败: {e}", spec.id)))?;
-    if let Some(n) = &mut when_node {
+        .map_err(|e| Error::Runtime(format!("derived.{} where 解析失败: {e}", spec.id)))?;
+    if let Some(n) = &mut where_node {
         strip_from_prefix(n, &spec.from);
     }
     let mut rows: Vec<CalcRow> = Vec::with_capacity(base.len());
     for r in base {
-        let keep = match &when_node {
+        let keep = match &where_node {
             Some(n) => {
                 let v = calc::eval_on_row(n, &|_| None, &r).map_err(|e| {
-                    Error::Runtime(format!("derived.{} when 求值失败: {e}", spec.id))
+                    Error::Runtime(format!("derived.{} where 求值失败: {e}", spec.id))
                 })?;
                 matches!(v, Value::Bool(true)) || matches!(v, Value::Num(x) if x != 0.0)
             }
@@ -316,12 +317,7 @@ fn strip_from_prefix(node: &mut Node, from: &str) {
                 strip_from_prefix(a, from);
             }
         }
-        Node::Agg { expr, cond, .. } => {
-            strip_from_prefix(expr, from);
-            if let Some(c) = cond {
-                strip_from_prefix(c, from);
-            }
-        }
+        Node::Agg { expr, .. } => strip_from_prefix(expr, from),
         _ => {}
     }
 }
@@ -408,6 +404,11 @@ pub fn param_lookup(scheme: &Scheme) -> HashMap<String, Value> {
 }
 
 /// 聚合结果：agg.id → (person → value)。依赖按 scheme.aggregates 顺序（引用前序聚合）。
+///
+/// 每个聚合 = SQL 式：`FROM {from} WHERE {where_} GROUP BY {group_by} SELECT {expr}`：
+/// - `where_`（可选）先裁行；
+/// - 按 `group_by` 列分组；
+/// - 对每组行求 `expr`（行内列用 `{from}.列` 书写，先归并为裸列；`聚合.x` 引用前序聚合）。
 pub fn compute_aggregates(
     scheme: &Scheme,
     run: &SchemeRun,
@@ -417,8 +418,35 @@ pub fn compute_aggregates(
 
     for agg in &scheme.aggregates {
         let rows = rows_for(&agg.from, &run.source_tables, &run.derived_tables)?;
-        let mut by_person: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
+
+        // WHERE：引用带 {from}. 前缀，先归并后逐行求值过滤。
+        let mut filtered: Vec<CalcRow> = Vec::with_capacity(rows.len());
+        let mut where_node = agg
+            .where_
+            .as_deref()
+            .map(calc::parse)
+            .transpose()
+            .map_err(|e| Error::Runtime(format!("聚合 {} where 解析失败: {e}", agg.id)))?;
+        if let Some(n) = &mut where_node {
+            strip_from_prefix(n, &agg.from);
+        }
         for r in rows {
+            let keep = match &where_node {
+                Some(n) => {
+                    let v = calc::eval_on_row(n, &|_| None, &r).map_err(|e| {
+                        Error::Runtime(format!("聚合 {} where 求值失败: {e}", agg.id))
+                    })?;
+                    matches!(v, Value::Bool(true)) || matches!(v, Value::Num(x) if x != 0.0)
+                }
+                None => true,
+            };
+            if keep {
+                filtered.push(r);
+            }
+        }
+
+        let mut by_person: BTreeMap<String, Vec<CalcRow>> = BTreeMap::new();
+        for r in filtered {
             if let Some(v) = key_value(&r, &agg.group_by) {
                 by_person
                     .entry(normalize_key(&value_key(v)))
@@ -426,8 +454,10 @@ pub fn compute_aggregates(
                     .push(r);
             }
         }
-        let node = calc::parse(&agg.expr)
+        // expr：行内列 `{from}.列` 归并为裸列，组行逐行取值归约；`聚合.x`/`参数.x` 走解析器。
+        let mut node = calc::parse(&agg.expr)
             .map_err(|e| Error::Runtime(format!("聚合 {} 表达式解析失败: {e}", agg.id)))?;
+        strip_from_prefix(&mut node, &agg.from);
 
         let mut per_person: BTreeMap<String, Value> = BTreeMap::new();
         for (person, group_rows) in &by_person {
@@ -444,7 +474,8 @@ pub fn compute_aggregates(
     Ok(out)
 }
 
-/// 解析：单段路径 → 已算聚合(按人) 或 参数裸名；两段 `参数.x` → 参数。
+/// 解析聚合/参数命名空间引用：`聚合.x` → 前序聚合(按人)，`参数.x` → 参数。
+/// 单段路径已不支持（强制前缀）；行内列只在聚合内部由行上下文解析，不经过本解析器。
 fn resolve_plain(
     p: &[String],
     aggs: &BTreeMap<String, BTreeMap<String, Value>>,
@@ -452,21 +483,14 @@ fn resolve_plain(
     person: &str,
 ) -> Option<Value> {
     match p {
-        [single] => {
-            if let Some(by_person) = aggs.get(single)
-                && let Some(v) = by_person.get(person)
-            {
-                return Some(v.clone());
-            }
-            params.get(single).cloned()
+        [ns, name] if ns == "聚合" => {
+            let want = normalize_key(person);
+            aggs.get(name)
+                .and_then(|m| m.get(&want).or_else(|| m.get(person)))
+                .cloned()
         }
-        _ => {
-            if p.len() == 2 && p[0] == "参数" {
-                params.get(&p[1]).cloned()
-            } else {
-                None
-            }
-        }
+        [ns, name] if ns == "参数" => params.get(name).cloned(),
+        _ => None,
     }
 }
 
@@ -517,17 +541,17 @@ pub fn compute_group_fields_for(
         let node =
             calc::parse(&text).map_err(|e| Error::Runtime(format!("字段 {name} 解析失败: {e}")))?;
         let value = calc::eval(&node, &|p| {
-            if let [single] = p {
-                if let Some(v) = computed.get(single) {
+            if p.len() == 2 && p[0] == "聚合" {
+                let want = normalize_key(person);
+                if let Some(by_person) = aggs.get(&p[1])
+                    && let Some(v) = by_person.get(&want).or_else(|| by_person.get(person))
+                {
                     return Some(v.clone());
                 }
-                if let Some(by_person) = aggs.get(single) {
-                    let want = normalize_key(person);
-                    if let Some(v) = by_person.get(&want).or_else(|| by_person.get(person)) {
-                        return Some(v.clone());
-                    }
-                }
-                return params.get(single).cloned();
+            }
+            // 单段路径 = 本组前序字段（方案①）；聚合/参数/表列必须带前缀。
+            if let [single] = p {
+                return computed.get(single).cloned();
             }
             if p.len() == 2 && p[0] == "参数" {
                 return params.get(&p[1]).cloned();
@@ -773,7 +797,7 @@ mod tests {
             id: "bukeshi_agg".into(),
             from: "qingjia".into(),
             merge: None,
-            when: Some("qingjia.替上课老师 != ''".into()),
+            where_: Some("qingjia.替上课老师 != ''".into()),
             columns: vec![
                 crate::scheme::ColumnDef {
                     name: "姓名".into(),
@@ -967,13 +991,15 @@ mod tests {
                 id: "请假超总天数".into(),
                 from: "qingjia".into(),
                 group_by: "姓名".into(),
-                expr: "SUM(天数 WHERE 类型 != '公')".into(),
+                where_: Some("qingjia.类型 != '公'".into()),
+                expr: "SUM(qingjia.天数)".into(),
             },
             AggregateSpec {
                 id: "请假超额".into(),
                 from: "qingjia".into(),
                 group_by: "姓名".into(),
-                expr: "请假超总天数 >= 参数.请假超过天数".into(),
+                where_: None,
+                expr: "聚合.请假超总天数 >= 参数.请假超过天数".into(),
             },
         ];
         scheme.groups = vec![GroupSpec {
@@ -991,7 +1017,7 @@ mod tests {
                 },
                 FieldExpr {
                     name: "发放".into(),
-                    expr: Some("IF(请假超额, 0, 课时费)".into()),
+                    expr: Some("IF(聚合.请假超额, 0, 课时费)".into()),
                 },
             ],
             overrides: vec![],
@@ -1234,7 +1260,7 @@ mod tests {
             merge: Some(crate::scheme::MergeSpec {
                 on: vec!["天数".into()],
             }),
-            when: None,
+            where_: None,
             columns: vec![],
         };
         let cols = vec![

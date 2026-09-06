@@ -253,16 +253,16 @@ layout_mode = 3
 size_flags_horizontal = 3
 placeholder_text = "留空=不合并；填列名（如 天数）：该列空的续行并入上一条记录"
 
-[node name="WhenRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
+[node name="WhereRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="WhenLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow"]
+[node name="WhereLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(96, 0)
-text = "过滤 when："
+text = "行过滤 where："
 
-[node name="WhenEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow"]
+[node name="WhereEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
 layout_mode = 3
 size_flags_horizontal = 3
 placeholder_text = "留空=全部行；引用带前缀，如 qingjia.替上课老师 != ''"

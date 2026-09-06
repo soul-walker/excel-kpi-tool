@@ -70,9 +70,9 @@ pub struct EditorNodes {
     )]
     pub derived_on_edit: GodotNodeHandle,
     #[node(
-        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhenRow/WhenEdit"
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow/WhereEdit"
     )]
-    pub derived_when_edit: GodotNodeHandle,
+    pub derived_where_edit: GodotNodeHandle,
     #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldBox")]
     pub derived_field_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
