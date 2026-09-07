@@ -811,7 +811,7 @@ mod tests {
                     "id": "fxp",
                     "name": "非校聘",
                     "fields": [
-                        { "name": "课时S", "expr": "IF(false, 0, keshi.课时 ?? 0)" },
+                        { "name": "课时S", "expr": "if false { 0 } else { keshi.课时 ?? 0 }" },
                         { "name": "课时费S", "expr": "课时S * 参数.课时费" }
                     ]
                 }

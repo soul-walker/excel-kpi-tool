@@ -133,9 +133,31 @@ pub(crate) struct AggregatePicked;
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct RemoveCurrentAggregate;
 
-/// 编辑器：指标详情里的“来源表 from”下拉被改动（分组列候选随之刷新）。
+/// 编辑器：聚合指标详情里的“来源表 from”下拉被改动（分组列候选随之刷新）。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct AggFromChanged;
+
+/// 编辑器：“+ 新增计算分组”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddGroupClicked;
+
+/// 编辑器：分组下拉框切换了要编辑的分组（目标序号 = 控件当前选中项）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct GroupPicked;
+
+/// 编辑器：“删除当前分组”（删除下拉当前选中的分组）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct RemoveCurrentGroup;
+
+/// 编辑器：给当前分组“+ 新增一行”（第 1 组 = 基础字段，其它组 = 覆盖）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddGroupItemClicked;
+
+/// 编辑器：删除当前分组的第 index 行（基础字段/覆盖行）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct GroupItemRemoveClicked {
+    pub index: i32,
+}
 
 /// 表达式 CodeEdit：文本变化（用于按输入节奏请求补全）。
 #[derive(Event, Debug, Clone, Copy)]

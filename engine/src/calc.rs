@@ -2,8 +2,10 @@
 //!
 //! M1 第一块地基。语法要点：
 //! - 数值 / 字符串（单双引号）/ 布尔；中文标识符；点分路径（`参数.课时费`、`qingjia.课时`）；
-//! - `??` 空值回退；算术、比较、AND/OR/NOT；
-//! - `IF(c,a,b)` 惰性三参；内置函数 MIN/MAX/ROUND/ABS；
+//! - `??`（或 `?`）空值回退；算术、比较、AND/OR/NOT；
+//! - 分支用编程风格块语法 `if 条件 { 真 } else { 假 }`（可 `else if` 链；else 可省略得 `空`），
+//!   惰性求值；旧 Excel 函数写法 `IF(c,a,b)` 已移除；
+//! - 内置函数 MIN/MAX/ROUND/ABS；
 //! - 聚合 `SUM/COUNT/AVG/MIN/MAX(<expr>)`：在行集合上下文求值（行内列带 `{表}.` 前缀）；
 //!   表达式内**不支持 WHERE 子句**——行过滤统一由派生/聚合的 `where` 字段（SQL WHERE）承担。
 //!
@@ -20,6 +22,8 @@ enum Tok {
     Comma,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
     Dot,
     Plus,
     Minus,
@@ -94,11 +98,12 @@ fn lex(src: &str) -> Result<Vec<Tok>, String> {
                 toks.push(Tok::Ident(s));
             }
             '?' => {
+                // `?` 与 `??` 均作空值回退（编程风格 `keshi.课时 ? 0`）。
                 chars.next();
-                match chars.next() {
-                    Some('?') => toks.push(Tok::Coalesce),
-                    _ => return Err("仅支持 ?? (应为两个问号)".into()),
+                if chars.peek() == Some(&'?') {
+                    chars.next();
                 }
+                toks.push(Tok::Coalesce);
             }
             _ => {
                 chars.next();
@@ -106,6 +111,8 @@ fn lex(src: &str) -> Result<Vec<Tok>, String> {
                     ',' => Tok::Comma,
                     '(' => Tok::LParen,
                     ')' => Tok::RParen,
+                    '{' => Tok::LBrace,
+                    '}' => Tok::RBrace,
                     '.' => Tok::Dot,
                     '+' => Tok::Plus,
                     '-' => Tok::Minus,
@@ -390,6 +397,18 @@ impl Parser {
                 {
                     return Ok(Node::Empty);
                 }
+                // `if` 关键字：只支持块语法 `if 条件 { 真 } else { 假 }`。
+                // `if (` 后括号内含顶层逗号即旧 Excel 函数写法 `IF(c,a,b)`，给迁移提示；
+                // 否则按块语法解析（括号条件 `if (cond) { … }` 也允许）。
+                if first.eq_ignore_ascii_case("if") {
+                    if self.peek() == &Tok::LParen && self.looks_like_legacy_if() {
+                        return Err(
+                            "已移除 Excel 函数写法 IF(c,a,b)；请改用块语法：if 条件 { 真 } else { 假 }"
+                                .into(),
+                        );
+                    }
+                    return self.parse_if_chain();
+                }
                 // 点分路径：a.b.c
                 let mut parts = vec![first];
                 while self.peek() == &Tok::Dot {
@@ -400,23 +419,10 @@ impl Parser {
                         return Err("路径中 '.' 后应为标识符".into());
                     }
                 }
-                // 函数 / 聚合 / IF 调用
+                // 函数 / 聚合调用
                 if self.peek() == &Tok::LParen {
                     self.next();
                     let name = parts.join(".");
-                    if name.eq_ignore_ascii_case("if") {
-                        let cond = self.parse_or()?;
-                        self.eat(&Tok::Comma)?;
-                        let then = self.parse_or()?;
-                        self.eat(&Tok::Comma)?;
-                        let els = self.parse_or()?;
-                        self.eat(&Tok::RParen)?;
-                        return Ok(Node::If {
-                            cond: Box::new(cond),
-                            then: Box::new(then),
-                            els: Box::new(els),
-                        });
-                    }
                     // 零参函数，如 LEAVE_PENALTY()
                     if self.peek() == &Tok::RParen {
                         self.next();
@@ -462,6 +468,63 @@ impl Parser {
             }
             other => Err(format!("意外的单元: {:?}", other)),
         }
+    }
+
+    /// `if (` 是否为旧 Excel 函数写法 `IF(c,a,b)`：括号内存在顶层（相对该括号）
+    /// 逗号即判定为旧写法（DSL 表达式里逗号只会作函数参数分隔，条件本身不含顶层逗号）。
+    fn looks_like_legacy_if(&self) -> bool {
+        let mut depth = 0usize;
+        let mut found_comma = false;
+        for t in self.toks.iter().skip(self.pos) {
+            match t {
+                Tok::LParen => depth += 1,
+                Tok::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return found_comma;
+                    }
+                }
+                Tok::Comma if depth == 1 => found_comma = true,
+                _ => {}
+            }
+        }
+        // 流未闭合：按已见结果判断，具体语法错误交由后续解析报出。
+        found_comma
+    }
+
+    /// 解析 `if` 关键字之后的整条链（当前 token 为 `if`，已由 parse_primary 消费）：
+    /// `if 条件 { 真 } [else { 假 } | else if …]`。else 可省略，缺省分支得 `空`。
+    fn parse_if_chain(&mut self) -> Result<Node, String> {
+        let cond = self.parse_or()?;
+        let then = self.parse_block()?;
+        let els = if self.is_kw("else") {
+            self.next();
+            if self.is_kw("if") {
+                self.next();
+                self.parse_if_chain()?
+            } else {
+                self.parse_block()?
+            }
+        } else {
+            Node::Empty
+        };
+        Ok(Node::If {
+            cond: Box::new(cond),
+            then: Box::new(then),
+            els: Box::new(els),
+        })
+    }
+
+    /// `{ 表达式 }` 块：按完整表达式解析花括号内内容。
+    fn parse_block(&mut self) -> Result<Node, String> {
+        self.eat(&Tok::LBrace)?;
+        let inner = self.parse_or()?;
+        self.eat(&Tok::RBrace)?;
+        Ok(inner)
+    }
+
+    fn is_kw(&self, kw: &str) -> bool {
+        matches!(self.peek(), Tok::Ident(k) if k.eq_ignore_ascii_case(kw))
     }
 }
 
@@ -720,9 +783,51 @@ mod tests {
     }
 
     #[test]
-    fn if_lazy() {
-        assert_eq!(ev("IF(true, 1, 2)"), Value::Num(1.0));
-        assert_eq!(ev("IF(false, 1, 2)"), Value::Num(2.0));
+    fn if_is_lazy() {
+        assert_eq!(ev("if true { 1 } else { 2 }"), Value::Num(1.0));
+        assert_eq!(ev("if false { 1 } else { 2 }"), Value::Num(2.0));
+        // 惰性：未走到的分支不求值（若被求值会因 ABS('abc') 报错）。
+        assert_eq!(ev("if false { ABS('abc') } else { 1 }"), Value::Num(1.0));
+        assert_eq!(ev("if true { 2 } else { ABS('abc') }"), Value::Num(2.0));
+    }
+
+    #[test]
+    fn block_style_if() {
+        // 块语法惰性求值。
+        assert_eq!(ev("if true { 1 } else { 2 }"), Value::Num(1.0));
+        assert_eq!(ev("if false { 1 } else { 2 }"), Value::Num(2.0));
+        // else if 链
+        assert_eq!(
+            ev("if false { 1 } else if true { 2 } else { 3 }"),
+            Value::Num(2.0)
+        );
+        assert_eq!(
+            ev("if false { 1 } else if false { 2 } else { 3 }"),
+            Value::Num(3.0)
+        );
+        // 括号条件
+        assert_eq!(ev("if (1 < 2) { 7 } else { 8 }"), Value::Num(7.0));
+        // 分支内部继续做算术 / 嵌套 if
+        assert_eq!(ev("if false { 1 + 2 } else { 10 - 4 }"), Value::Num(6.0));
+        assert_eq!(
+            ev("if true { if false { 1 } else { 2 } } else { 3 }"),
+            Value::Num(2.0)
+        );
+        // 无 else：条件不成立得 空
+        assert_eq!(ev("if false { 1 }"), Value::Empty);
+        assert_eq!(ev("if true { 1 }"), Value::Num(1.0));
+    }
+
+    #[test]
+    fn legacy_if_function_form_rejected() {
+        // 旧 Excel 函数写法已移除：解析即报错，且给出块语法迁移提示。
+        let err = parse("IF(聚合.请假超额, 0, keshi.课时 ?? 0)").unwrap_err();
+        assert!(err.contains("块语法"), "报错应提示迁移: {err}");
+        assert!(parse("IF(true, 1, 2)").is_err());
+
+        // 多行块写法（对标方案里的样例）应可解析。
+        parse("if 聚合.请假超额 {\n  0\n} else {\n  keshi.课时 ? 0\n}")
+            .expect("多行块语法应可解析");
     }
 
     #[test]
@@ -734,23 +839,58 @@ mod tests {
     }
 
     #[test]
+    fn not_and_brace_if_with_coalesce() {
+        // 旧式嵌套 IF 的新写法要素：NOT + and + 单 `?` 空值回退 + 无 else 分支（缺省得 空）。
+        // 语义与旧写法 IF(超额, 空, IF(x ?? 0 > 0, x ?? 0, 空)) 等价。
+        let src = "if NOT 请假超额 and gangwei.教研组长?0 > 0 { gangwei.教研组长?0 }";
+        let n = parse(src).expect("新写法应可解析");
+        let run = |v: &[(&[&str], Value)]| {
+            eval(&n, &|p| {
+                v.iter()
+                    .find(|(path, _)| *path == p)
+                    .map(|(_, val)| val.clone())
+            })
+            .expect("求值失败")
+        };
+        // 超额 → 空
+        assert_eq!(run(&[(&["请假超额"], Value::Bool(true))]), Value::Empty);
+        // 不超额但列缺失 → 空
+        assert_eq!(run(&[]), Value::Empty);
+        // 不超额且值为 0 → 空
+        assert_eq!(
+            run(&[(&["gangwei", "教研组长"], Value::Num(0.0))]),
+            Value::Empty
+        );
+        // 不超额且值 > 0 → 返回值
+        assert_eq!(
+            run(&[(&["gangwei", "教研组长"], Value::Num(5.0))]),
+            Value::Num(5.0)
+        );
+    }
+
+    #[test]
     fn coalesce_and_missing_path() {
         assert_eq!(ev("课时.课时 ?? 0"), Value::Num(0.0));
-        assert_eq!(ev("IF(true, 1, 2) ?? 9"), Value::Num(1.0));
+        assert_eq!(ev("(if true { 1 } else { 2 }) ?? 9"), Value::Num(1.0));
+        // 单 `?` 与 `??` 等价。
+        assert_eq!(ev("keshi.课时 ? 0"), Value::Num(0.0));
     }
 
     #[test]
     fn empty_literal() {
         assert_eq!(ev("空"), Value::Empty);
         assert_eq!(ev("null"), Value::Empty);
-        assert_eq!(ev("IF(false, 1, 空)"), Value::Empty);
+        assert_eq!(ev("if false { 1 } else { 空 }"), Value::Empty);
         // 算术中 空 按 0 处理
         assert_eq!(ev("空 + 5"), Value::Num(5.0));
     }
 
     #[test]
     fn chinese_identifiers_and_params() {
-        assert_eq!(ev("IF(请假超额, 0, 课时.课时 ?? 0)"), Value::Num(0.0));
+        assert_eq!(
+            ev("if 请假超额 { 0 } else { 课时.课时 ?? 0 }"),
+            Value::Num(0.0)
+        );
         assert_eq!(ev("1.5 * 2"), Value::Num(3.0));
         // 参数路径存在时的取值走回调
         let n = parse("参数.基础课时 + 1").unwrap();

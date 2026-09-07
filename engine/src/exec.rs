@@ -1017,7 +1017,7 @@ mod tests {
                 },
                 FieldExpr {
                     name: "发放".into(),
-                    expr: Some("IF(聚合.请假超额, 0, 课时费)".into()),
+                    expr: Some("if 聚合.请假超额 { 0 } else { 课时费 }".into()),
                 },
             ],
             overrides: vec![],

@@ -7,6 +7,7 @@
 //! - `sources`：编辑器数据源/列映射页签；
 //! - `derived`：编辑器派生视图页签；
 //! - `aggregates`：编辑器聚合指标页签；
+//! - `groups`：编辑器计算分组页签；
 //! - `nav`：主场景路由（顶栏导航 → 页面场景的生成/切换）；
 //! - `setup`：运行台场景节点句柄解析与初始化；
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
@@ -18,6 +19,7 @@ pub mod devshot;
 pub mod editor;
 pub mod events;
 pub mod expr;
+pub mod groups;
 pub mod handlers;
 pub mod nav;
 pub mod refs;
@@ -28,13 +30,14 @@ pub mod view;
 
 use bevy::app::{App, Plugin};
 use events::{
-    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked,
-    AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked, ColRemoveClicked,
-    DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked, EditorLoadClicked,
-    EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked, EditorValidateClicked,
-    ExprCompletionRequested, ExprFocusEntered, ExprFocusExited, ExprTextChanged, MonthDirPicked,
-    NameFieldFocusLost, ParamRemoveClicked, ParamTypeChosen, ParamValueEdited,
-    RemoveCurrentAggregate, RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage,
+    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddGroupClicked,
+    AddGroupItemClicked, AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked,
+    ColRemoveClicked, DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked,
+    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
+    EditorValidateClicked, ExprCompletionRequested, ExprFocusEntered, ExprFocusExited,
+    ExprTextChanged, GroupItemRemoveClicked, GroupPicked, MonthDirPicked, NameFieldFocusLost,
+    ParamRemoveClicked, ParamTypeChosen, ParamValueEdited, RemoveCurrentAggregate,
+    RemoveCurrentDerived, RemoveCurrentGroup, RunClicked, ShowEditorPage, ShowRunPage,
     SourceColsClicked, SourceRemoveClicked, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
@@ -75,6 +78,11 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<AggregatePicked>::default())
             .add_plugins(GodotSignalsPlugin::<RemoveCurrentAggregate>::default())
             .add_plugins(GodotSignalsPlugin::<AggFromChanged>::default())
+            .add_plugins(GodotSignalsPlugin::<AddGroupClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<GroupPicked>::default())
+            .add_plugins(GodotSignalsPlugin::<RemoveCurrentGroup>::default())
+            .add_plugins(GodotSignalsPlugin::<AddGroupItemClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<GroupItemRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ExprTextChanged>::default())
             .add_plugins(GodotSignalsPlugin::<ExprCompletionRequested>::default())
             .add_plugins(GodotSignalsPlugin::<ExprFocusEntered>::default())
@@ -92,6 +100,7 @@ impl Plugin for UiPlugin {
         app.insert_non_send_resource(sources::ColRows::default());
         app.insert_non_send_resource(derived::DerivedDetail::default());
         app.insert_non_send_resource(aggregates::AggregateDetail::default());
+        app.insert_non_send_resource(groups::GroupDetail::default());
 
         app.add_systems(bevy::prelude::Startup, nav::setup_router);
         app.add_systems(
@@ -103,6 +112,7 @@ impl Plugin for UiPlugin {
                 sources::connect_sources_signals,
                 derived::connect_derived_signals,
                 aggregates::connect_aggregates_signals,
+                groups::connect_groups_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -135,6 +145,11 @@ impl Plugin for UiPlugin {
         app.add_observer(aggregates::on_agg_picked);
         app.add_observer(aggregates::on_remove_current);
         app.add_observer(aggregates::on_agg_from_changed);
+        app.add_observer(groups::on_add_group);
+        app.add_observer(groups::on_group_picked);
+        app.add_observer(groups::on_remove_group);
+        app.add_observer(groups::on_add_item);
+        app.add_observer(groups::on_remove_item);
         app.add_observer(expr::on_expr_text_changed);
         app.add_observer(expr::on_expr_completion);
         app.add_observer(expr::on_expr_focus_entered);

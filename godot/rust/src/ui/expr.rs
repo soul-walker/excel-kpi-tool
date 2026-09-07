@@ -10,7 +10,7 @@
 //!   - 光标落在 `标识.` 之后（成员引用）：只给该命名空间的后缀名（如 `参数.` → 参数名，
 //!     `qingjia.` → 该表列名），选中只插后缀；
 //!   - 其它位置（整词引用）：给全名候选（`qingjia.天数`、`参数.考勤奖`），并给出全部语法关键字：
-//!     函数/聚合（`SUM(`、`IF(`…）、逻辑（`AND/OR/NOT`）、空值/布尔（`空`/`true`…）；
+//!     函数/聚合（`SUM(`…）、分支/逻辑关键字（`if`/`else`、`AND/OR/NOT`）、空值/布尔（`空`/`true`…）；
 //!     引擎对这些关键字大小写不敏感，候选会跟随用户当前输入的大小写给出对应形式；
 //!     CodeEdit 会自动按光标前的词过滤并做整词替换。
 
@@ -32,6 +32,7 @@ use super::aggregates::AggregateDetail;
 use super::derived::DerivedDetail;
 use super::editor::EditorDoc;
 use super::events::{ExprCompletionRequested, ExprFocusEntered, ExprFocusExited, ExprTextChanged};
+use super::groups::GroupDetail;
 
 /// 表达式输入框的紧凑高度（一行）。
 const COMPACT_HEIGHT: f32 = 42.0;
@@ -75,11 +76,13 @@ enum OptKind {
 /// 函数/聚合关键字。引擎对函数名大小写不敏感（解析时一律小写比较），
 /// 因此补全会跟随用户当前输入的大小写给出对应形式（如 `SUM(` / `sum(`）。
 const FUNC_NAMES: &[&str] = &[
-    "IF", "MIN", "MAX", "ROUND", "ABS", "SUM", "AVG", "COUNT", "GROUP_BY",
+    "MIN", "MAX", "ROUND", "ABS", "SUM", "AVG", "COUNT", "GROUP_BY",
 ];
 
-/// 逻辑 / 空值 / 布尔关键字：AND/OR/NOT、true/false/null/empty 均大小写不敏感；`空` 固定中文。
-const KEYWORD_NAMES: &[&str] = &["AND", "OR", "NOT", "空", "null", "empty", "true", "false"];
+/// 分支 / 逻辑 / 空值 / 布尔关键字：if/else、AND/OR/NOT、true/false/null/empty 均大小写不敏感；`空` 固定中文。
+const KEYWORD_NAMES: &[&str] = &[
+    "if", "else", "AND", "OR", "NOT", "空", "null", "empty", "true", "false",
+];
 
 /// 依据光标前已输入词的形态决定候选大小写：已输入词全为小写字母 → 给全小写；否则给规范大写。
 fn prefer_lower(before: &str) -> bool {
@@ -115,6 +118,8 @@ pub(crate) enum EditRole {
     AggWhere,
     /// 聚合指标 expr。
     AggExpr,
+    /// 计算分组的字段表达式（基础字段/覆盖行）。
+    GroupFieldExpr,
 }
 
 /// 文本长度快照：用于区分“打字”与“删除/程序 set_text”（删除时不自动弹补全）。
@@ -264,10 +269,11 @@ pub(crate) fn on_expr_focus_entered(
     trigger: On<ExprFocusEntered>,
     detail: NonSend<DerivedDetail>,
     agg: NonSend<AggregateDetail>,
+    group: NonSend<GroupDetail>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, &agg, node).is_none() {
+    if role_of(&detail, &agg, &group, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -282,10 +288,11 @@ pub(crate) fn on_expr_focus_exited(
     trigger: On<ExprFocusExited>,
     detail: NonSend<DerivedDetail>,
     agg: NonSend<AggregateDetail>,
+    group: NonSend<GroupDetail>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, &agg, node).is_none() {
+    if role_of(&detail, &agg, &group, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -305,6 +312,7 @@ fn set_min_height(edit: &mut Gd<CodeEdit>, height: f32) {
 fn role_of(
     detail: &DerivedDetail,
     agg: &AggregateDetail,
+    group: &GroupDetail,
     node: GodotNodeHandle,
 ) -> Option<EditRole> {
     if detail
@@ -335,6 +343,13 @@ fn role_of(
     {
         return Some(EditRole::AggExpr);
     }
+    if group
+        .item_expr
+        .iter()
+        .any(|e| GodotNodeHandle::new(e.clone()) == node)
+    {
+        return Some(EditRole::GroupFieldExpr);
+    }
     None
 }
 
@@ -345,11 +360,12 @@ pub(crate) fn on_expr_text_changed(
     trigger: On<ExprTextChanged>,
     detail: NonSend<DerivedDetail>,
     agg: NonSend<AggregateDetail>,
+    group: NonSend<GroupDetail>,
     mut lens: ResMut<TextLenMap>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    if role_of(&detail, &agg, node).is_none() {
+    if role_of(&detail, &agg, &group, node).is_none() {
         return;
     }
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -391,11 +407,12 @@ pub(crate) fn on_expr_completion(
     trigger: On<ExprCompletionRequested>,
     detail: NonSend<DerivedDetail>,
     agg: NonSend<AggregateDetail>,
+    group: NonSend<GroupDetail>,
     doc: Res<EditorDoc>,
     mut godot: GodotAccess,
 ) {
     let node = trigger.event().node;
-    let Some(role) = role_of(&detail, &agg, node) else {
+    let Some(role) = role_of(&detail, &agg, &group, node) else {
         return;
     };
     let Some(mut edit) = godot.try_get::<CodeEdit>(node) else {
@@ -406,9 +423,12 @@ pub(crate) fn on_expr_completion(
     };
     let sel = doc.selected_derived.max(0) as usize;
     let agg_sel = doc.selected_aggregate.max(0) as usize;
+    let group_sel = doc.selected_group.max(0) as usize;
 
     let before = caret_before(&edit);
-    let opts = completion_options(role, sel, agg_sel, &detail, &agg, raw, &before);
+    let opts = completion_options(
+        role, sel, agg_sel, group_sel, &detail, &agg, &group, raw, &before,
+    );
     let preview: Vec<&str> = opts.iter().take(30).map(|o| o.text.as_str()).collect();
     dev_log(format!(
         "code_completion_requested role={role:?} before={before:?} 候选数={} {preview:?}",
@@ -544,25 +564,33 @@ fn last_word(s: &str) -> String {
 // ---------- 候选生成（依据方案 JSON 现状，保证与引擎一致） ----------
 
 /// 计算某个输入框此刻应弹出的候选。
+#[allow(clippy::too_many_arguments)]
 fn completion_options(
     role: EditRole,
     sel: usize,
     agg_sel: usize,
+    group_sel: usize,
     detail: &DerivedDetail,
     agg: &AggregateDetail,
+    group: &GroupDetail,
     raw: &Value,
     before: &str,
 ) -> Vec<CompOpt> {
     let is_agg = matches!(role, EditRole::AggWhere | EditRole::AggExpr);
     // 1) 成员引用：光标紧跟 `属主.` 后（或正在输入其成员词），只给该属主下的后缀候选。
     if let Some(owner) = member_owner(before) {
+        if role == EditRole::GroupFieldExpr {
+            return group_member_pool(raw, &owner).unwrap_or_default();
+        }
         if is_agg {
             return agg_member_pool(raw, &owner).unwrap_or_default();
         }
         return member_pool(detail, raw, sel, &owner).unwrap_or_default();
     }
     // 2) 整词引用：给完整候选（含函数/关键字），由 CodeEdit 按光标前的词过滤。
-    if is_agg {
+    if role == EditRole::GroupFieldExpr {
+        group_full_pool(raw, group, group_sel, before)
+    } else if is_agg {
         agg_full_pool(role, agg, raw, agg_sel, before)
     } else {
         full_pool(role, detail, raw, sel, before)
@@ -877,4 +905,149 @@ fn agg_full_pool(
         }
     }
     out
+}
+
+// ---------- 计算分组字段表达式的候选 ----------
+
+/// 计算分组字段可用的函数（行集聚合 SUM/AVG… 在字段上下文无行集合，不提示）。
+const GROUP_FUNCS: [&str; 4] = ["MIN", "MAX", "ROUND", "ABS"];
+
+fn group_at(raw: &Value, sel: usize) -> Option<&Value> {
+    raw.get("scheme")?.get("groups")?.as_array()?.get(sel)
+}
+
+/// 聚合指标 from 的表 id 集合：这些表是“按人汇总”的明细行集，
+/// 计算分组字段不能再按人取它的单值列（引擎会拒绝），补全里也排除。
+fn agg_from_ids(raw: &Value) -> Vec<String> {
+    raw.get("scheme")
+        .and_then(|s| s.get("aggregates"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.get("from").and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 某表能否作为分组的单值引用（非聚合 from 表）。
+fn group_table_allowed(raw: &Value, id: &str) -> bool {
+    !agg_from_ids(raw).iter().any(|f| f == id)
+}
+
+/// 分组字段可引用的“{表}.列”全集（源 + 派生，排除聚合 from 表）。
+fn group_table_refs(raw: &Value) -> Vec<CompOpt> {
+    let mut out: Vec<CompOpt> = Vec::new();
+    let Some(scheme) = raw.get("scheme") else {
+        return out;
+    };
+    let mut ids: Vec<String> = Vec::new();
+    if let Some(srcs) = scheme.get("sources").and_then(Value::as_array) {
+        ids.extend(
+            srcs.iter()
+                .filter_map(|s| s.get("id").and_then(Value::as_str).map(String::from)),
+        );
+    }
+    if let Some(ds) = scheme.get("derived").and_then(Value::as_array) {
+        ids.extend(
+            ds.iter()
+                .filter_map(|d| d.get("id").and_then(Value::as_str).map(String::from)),
+        );
+    }
+    for id in ids {
+        if !group_table_allowed(raw, &id) {
+            continue;
+        }
+        if let Some(cols) = table_columns(raw, &id) {
+            for c in cols {
+                push_uniq(&mut out, format!("{id}.{c}"), OptKind::Ref);
+            }
+        }
+    }
+    out
+}
+
+/// 当前分组“有效字段名”：第 1 组基础字段名 + 本组已声明/正在输入的覆盖名。
+/// （字段表达式里裸名引用的是同组字段，先算先得，故只给名称候选。）
+fn group_field_names(raw: &Value, group: &GroupDetail, sel: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(gs) = raw
+        .get("scheme")
+        .and_then(|s| s.get("groups"))
+        .and_then(Value::as_array)
+        && let Some(base) = gs.first()
+        && let Some(fs) = base.get("fields").and_then(Value::as_array)
+    {
+        for f in fs {
+            if let Some(name) = f.get("name").and_then(Value::as_str) {
+                let name = name.trim();
+                if !name.is_empty() && !out.iter().any(|o| o.as_str() == name) {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    // 当前组的覆盖（或基组的字段）行：raw 已存 + 面板正在输入的名字。
+    let key = if sel == 0 { "fields" } else { "overrides" };
+    if let Some(g) = group_at(raw, sel)
+        && let Some(items) = g.get(key).and_then(Value::as_array)
+    {
+        for it in items {
+            if let Some(name) = it.get("name").and_then(Value::as_str) {
+                let name = name.trim();
+                if !name.is_empty() && !out.iter().any(|o| o.as_str() == name) {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    for e in &group.item_name {
+        let name = e.get_text().to_string();
+        let name = name.trim().to_string();
+        if !name.is_empty() && !out.iter().any(|o| o == &name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// 计算分组字段整词候选：同组字段名 / 参数 / 聚合 / 单值表列 + 关键字 + 普通函数。
+fn group_full_pool(raw: &Value, group: &GroupDetail, sel: usize, before: &str) -> Vec<CompOpt> {
+    let mut out: Vec<CompOpt> = Vec::new();
+    let lower = prefer_lower(before);
+    for name in group_field_names(raw, group, sel) {
+        push_uniq(&mut out, name, OptKind::Ref);
+    }
+    for p in param_names(raw) {
+        push_uniq(&mut out, format!("参数.{p}"), OptKind::Ref);
+    }
+    for id in agg_ids(raw) {
+        push_uniq(&mut out, format!("聚合.{id}"), OptKind::Ref);
+    }
+    for r in group_table_refs(raw) {
+        push_uniq(&mut out, r.text, OptKind::Ref);
+    }
+    for kw in KEYWORD_NAMES {
+        push_uniq(&mut out, styled(kw, lower), OptKind::Kw);
+    }
+    for f in GROUP_FUNCS {
+        push_uniq(&mut out, format!("{}()", styled(f, lower)), OptKind::Func);
+    }
+    out
+}
+
+/// 分组字段表达式里 `属主.` 后的后缀候选（参数 / 聚合 / 可单值引用的表列）。
+fn group_member_pool(raw: &Value, owner: &str) -> Option<Vec<CompOpt>> {
+    if owner == "参数" {
+        return Some(param_names(raw).into_iter().map(comp).collect());
+    }
+    if owner == "聚合" {
+        return Some(agg_ids(raw).into_iter().map(comp).collect());
+    }
+    if group_table_allowed(raw, owner)
+        && let Some(cols) = table_columns(raw, owner)
+    {
+        return Some(cols.into_iter().map(comp).collect());
+    }
+    None
 }

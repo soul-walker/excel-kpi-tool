@@ -11,12 +11,14 @@ use super::aggregates::AggregateDetail as AggDetail;
 use super::derived::DerivedDetail as DvDetail;
 use super::editor::{EditorDoc, EditorRefs, EditorRoot, ParamRows};
 use super::events::{
-    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked,
-    AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked, DerivedPicked,
-    EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
-    EditorSchemePicked, EditorValidateClicked, MonthDirPicked, RemoveCurrentAggregate,
-    RemoveCurrentDerived, RunClicked, ShowEditorPage, ShowRunPage, ValidateClicked,
+    AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddGroupClicked,
+    AddGroupItemClicked, AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked,
+    DerivedPicked, EditorAddParamClicked, EditorLoadClicked, EditorNewSchemeClicked,
+    EditorSaveClicked, EditorSchemePicked, EditorValidateClicked, GroupPicked, MonthDirPicked,
+    RemoveCurrentAggregate, RemoveCurrentDerived, RemoveCurrentGroup, RunClicked, ShowEditorPage,
+    ShowRunPage, ValidateClicked,
 };
+use super::groups::GroupDetail as GDetail;
 use super::sources::{ColRows as SrcCols, SourceRows as SrcRows};
 use super::view::{UiHost, UiRefs};
 
@@ -49,6 +51,7 @@ pub fn setup_router(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
 ) {
     for (handle, name) in &nodes {
         match name.as_str() {
@@ -73,6 +76,7 @@ pub fn setup_router(
     col_rows.clear();
     ddetail.clear();
     adetail.clear();
+    gdetail.clear();
     spawn_run_page(&mut commands, content.0, &mut active);
 }
 
@@ -103,6 +107,7 @@ pub fn on_show_editor_page(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
 ) {
     info!("导航：方案编辑");
     editor_refs.nodes = None;
@@ -114,6 +119,7 @@ pub fn on_show_editor_page(
     col_rows.clear();
     ddetail.clear();
     adetail.clear();
+    gdetail.clear();
     spawn_editor_page(&mut commands, content.0, &mut active);
 }
 
@@ -255,6 +261,26 @@ fn spawn_editor_page(
             "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow/AggFromSelect",
             "item_selected",
             |_args, _node, _entity| Some(AggFromChanged),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow/AddGroupBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddGroupClicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow/GroupPick",
+            "item_selected",
+            |_args, _node, _entity| Some(GroupPicked),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow/DelGroupBtn",
+            "pressed",
+            |_args, _node, _entity| Some(RemoveCurrentGroup),
+        )
+        .with_signal_connection(
+            "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemHead/AddItemBtn",
+            "pressed",
+            |_args, _node, _entity| Some(AddGroupItemClicked),
         );
     let entity = commands.spawn((EditorRoot, PageRoot, scene)).id();
     active.0 = Some(entity);

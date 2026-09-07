@@ -414,13 +414,120 @@ layout_mode = 3
 size_flags_horizontal = 3
 placeholder_text = "按组求值，如 SUM(qingjia.天数) / 聚合.请假超总天数 >= 参数.请假超过天数"
 
-[node name="规划" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+[node name="计算分组" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="GroupHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
 layout_mode = 2
 
-[node name="PlanHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/规划"]
+[node name="GroupHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
+layout_mode = 2
+text = "计算分组（不同公式集）：第 1 组是共享基础字段，后续组用覆盖/停用表达增量。下拉切换要编辑的分组，点「+ 新增分组」添加。"
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddGroupBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
+layout_mode = 2
+text = "+ 新增分组"
+
+[node name="PickRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(72, 0)
+text = "编辑分组："
+
+[node name="GroupPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="DelGroupBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow"]
+layout_mode = 2
+text = "删除当前分组"
+
+[node name="DetailScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="DetailVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
 layout_mode = 2
 autowrap_mode = 2
-text = "计算分组 / 输出 编辑：后续迭代"
+text = "分组详情（先新增分组）"
+
+[node name="IdRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(112, 0)
+text = "分组 id："
+
+[node name="GroupIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 fxp（输出 groups 按此 id 指向本组；改名失焦即全方案同步）"
+
+[node name="NameRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NameLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(112, 0)
+text = "名称："
+
+[node name="GroupNameEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/NameRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "显示名，如 非校聘"
+
+[node name="SheetRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SheetLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/SheetRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(112, 0)
+text = "匹配 sheet："
+
+[node name="GroupSheetEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/SheetRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "留空 = 不按 sheet 区分；填模板 sheet 名（如 非校聘）时按它区分人"
+
+[node name="ItemHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
+layout_mode = 2
+
+[node name="ItemHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemHead"]
+layout_mode = 2
+text = ""
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddItemBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemHead"]
+layout_mode = 2
+text = "+ 新增一行"
+
+[node name="ItemBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="OutputsHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
+layout_mode = 2
+autowrap_mode = 2
+modulate = Color(0.6, 0.6, 0.6, 1)
+text = "输出（patch 模板列 / groups→sheet）编辑：后续迭代接入"
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

@@ -31,15 +31,23 @@ struct MemberRename {
     kind: &'static str,
 }
 
+/// 第 1 组基础字段改名（分组字段在字段表达式里以裸名引用）。
+struct GroupFieldRename {
+    old: String,
+    new: String,
+    kind: &'static str,
+}
+
 #[derive(Default)]
 struct RenameDiff {
     table: Vec<TableRename>,
     member: Vec<MemberRename>,
+    group_field: Vec<GroupFieldRename>,
 }
 
 impl RenameDiff {
     fn is_empty(&self) -> bool {
-        self.table.is_empty() && self.member.is_empty()
+        self.table.is_empty() && self.member.is_empty() && self.group_field.is_empty()
     }
 }
 
@@ -144,6 +152,40 @@ fn detect(before: &Value, after: &Value) -> RenameDiff {
             let old_id = field_of(old_item, "id");
             let new_id = field_of(new_item, "id");
             push_member(&mut diff, "聚合", old_id, new_id, "聚合指标");
+        }
+    }
+
+    // 计算分组：分组 id（输出 patch groups[].group 整串引用）+ 第 1 组基础字段名
+    // （字段表达式裸名引用、其它组 overrides 行名、输出列 field 整串引用）。
+    if let (Some(bg), Some(ag)) = (arr(b.get("groups")), arr(a.get("groups")))
+        && bg.len() == ag.len()
+    {
+        for (b_g, a_g) in bg.iter().zip(ag.iter()) {
+            let old_id = field_of(b_g, "id");
+            let new_id = field_of(a_g, "id");
+            if !old_id.is_empty() && old_id != new_id {
+                diff.table.push(TableRename {
+                    old: old_id,
+                    new: new_id.clone(),
+                    kind: "分组 id",
+                });
+            }
+        }
+        if let (Some(b0), Some(a0)) = (bg.first(), ag.first())
+            && let (Some(b_fields), Some(a_fields)) = (arr(b0.get("fields")), arr(a0.get("fields")))
+            && b_fields.len() == a_fields.len()
+        {
+            for (b_row, a_row) in b_fields.iter().zip(a_fields.iter()) {
+                let old = field_of(b_row, "name");
+                let new = field_of(a_row, "name");
+                if !old.is_empty() && old != new {
+                    diff.group_field.push(GroupFieldRename {
+                        old,
+                        new,
+                        kind: "分组字段名",
+                    });
+                }
+            }
         }
     }
     diff
@@ -377,10 +419,22 @@ fn rewrite_from_fields(after: &mut Value, diff: &RenameDiff, counts: &mut Counts
         }
         if let Some(outs) = scheme.get_mut("outputs").and_then(|x| x.as_array_mut()) {
             for o in outs {
-                let Some(nf) = o.get_mut("kind").and_then(|k| k.get_mut("new_file")) else {
+                let Some(kind) = o.get_mut("kind") else {
                     continue;
                 };
-                fix(&mut nf["from"]);
+                // new_file.from
+                if let Some(nf) = kind.get_mut("new_file") {
+                    fix(&mut nf["from"]);
+                    continue;
+                }
+                // patch_template.groups[].group（整串 = 分组 id）
+                if let Some(pt) = kind.get_mut("patch_template")
+                    && let Some(grps) = pt.get_mut("groups").and_then(|x| x.as_array_mut())
+                {
+                    for g in grps {
+                        fix(&mut g["group"]);
+                    }
+                }
             }
         }
         count_bump(counts, t.kind, old, new, matched);
@@ -529,11 +583,144 @@ fn rewrite_bare_contexts(after: &mut Value, diff: &RenameDiff, counts: &mut Coun
     }
 }
 
+/// 裸名 token 改写（计算分组字段表达式用）：按整词替换，跳过单引号字面量，
+/// 且不碰 `.` 后面的成员（`参数.x`/`聚合.x`/`{表}.列` 里的 x 都不是裸字段引用）。
+fn replace_bare_token(text: &str, old: &str, new: &str) -> (String, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
+    let old_len = old.chars().count();
+    let mut out = String::with_capacity(n);
+    let mut count = 0;
+    let mut i = 0;
+    let mut in_literal = false;
+    while i < n {
+        let c = chars[i];
+        if in_literal {
+            out.push(c);
+            if c == '\'' {
+                in_literal = false;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '\'' {
+            in_literal = true;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if is_word(c) {
+            let start = i;
+            while i < n && is_word(chars[i]) {
+                i += 1;
+            }
+            let wlen = i - start;
+            if wlen == old_len && (start == 0 || chars[start - 1] != '.') {
+                let w: String = chars[start..i].iter().collect();
+                if w == old {
+                    out.push_str(new);
+                    count += 1;
+                    continue;
+                }
+            }
+            out.extend(&chars[start..i]);
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    (out, count)
+}
+
+/// 第 1 组基础字段改名后的同步：各分组覆盖行的 name（整串）、输出列 field（整串）、
+/// 分组 fields/overrides 表达式里的裸 token。
+fn rewrite_group_field_renames(after: &mut Value, diff: &RenameDiff, counts: &mut Counts) {
+    if diff.group_field.is_empty() {
+        return;
+    }
+    let Some(scheme) = after.get_mut("scheme") else {
+        return;
+    };
+    // 1) 各分组 overrides 行名：改指向改名后的基础字段。
+    if let Some(gs) = scheme.get_mut("groups").and_then(|x| x.as_array_mut()) {
+        for g in gs.iter_mut() {
+            if let Some(list) = g.get_mut("overrides").and_then(|x| x.as_array_mut()) {
+                for fe in list.iter_mut() {
+                    let Some(s) = fe["name"].as_str() else {
+                        continue;
+                    };
+                    if let Some(r) = diff.group_field.iter().find(|r| r.old == s) {
+                        fe["name"] = Value::String(r.new.clone());
+                        count_bump(counts, r.kind, &r.old, &r.new, 1);
+                    }
+                }
+            }
+        }
+    }
+    // 2) 输出列 field（patch_template 与 new_file 的 columns 同构）。
+    if let Some(outs) = scheme.get_mut("outputs").and_then(|x| x.as_array_mut()) {
+        for o in outs {
+            let Some(kind) = o.get_mut("kind") else {
+                continue;
+            };
+            let cols: Option<&mut Vec<Value>> = if let Some(pt) = kind.get_mut("patch_template") {
+                pt.get_mut("columns").and_then(|x| x.as_array_mut())
+            } else if let Some(nf) = kind.get_mut("new_file") {
+                nf.get_mut("columns").and_then(|x| x.as_array_mut())
+            } else {
+                None
+            };
+            let Some(cols) = cols else {
+                continue;
+            };
+            for c in cols.iter_mut() {
+                let Some(s) = c["field"].as_str() else {
+                    continue;
+                };
+                if let Some(r) = diff.group_field.iter().find(|r| r.old == s) {
+                    c["field"] = Value::String(r.new.clone());
+                    count_bump(counts, r.kind, &r.old, &r.new, 1);
+                }
+            }
+        }
+    }
+    // 3) 分组字段/覆盖表达式里的裸 token 引用。
+    if let Some(gs) = scheme.get_mut("groups").and_then(|x| x.as_array_mut()) {
+        for g in gs.iter_mut() {
+            for key in ["fields", "overrides"] {
+                let Some(list) = g.get_mut(key).and_then(|x| x.as_array_mut()) else {
+                    continue;
+                };
+                for fe in list.iter_mut() {
+                    let Some(e) = fe.get_mut("expr") else {
+                        continue;
+                    };
+                    let Some(text) = e.as_str() else {
+                        continue;
+                    };
+                    let mut t = text.to_string();
+                    for r in &diff.group_field {
+                        let (out, n) = replace_bare_token(&t, &r.old, &r.new);
+                        if n > 0 {
+                            t = out;
+                            count_bump(counts, r.kind, &r.old, &r.new, n);
+                        }
+                    }
+                    if t != text {
+                        *e = Value::String(t);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn apply(after: &mut Value, diff: &RenameDiff) -> Vec<String> {
     let mut counts: Counts = HashMap::new();
     rewrite_from_fields(after, diff, &mut counts);
     rewrite_exprs(after, diff, &mut counts);
     rewrite_bare_contexts(after, diff, &mut counts);
+    rewrite_group_field_renames(after, diff, &mut counts);
 
     // —— 组装日志 ——
     let mut logs = Vec::new();
@@ -556,6 +743,18 @@ fn apply(after: &mut Value, diff: &RenameDiff) -> Vec<String> {
             logs.push(format!(
                 "{}：{} → {}（前缀 {}，同步 {} 处引用）",
                 m.kind, m.old, m.new, m.prefix, n
+            ));
+        }
+    }
+    for g in &diff.group_field {
+        let n = counts
+            .get(&(g.kind, g.old.clone(), g.new.clone()))
+            .copied()
+            .unwrap_or(0);
+        if n > 0 {
+            logs.push(format!(
+                "{}：{} → {}（同步 {} 处引用）",
+                g.kind, g.old, g.new, n
             ));
         }
     }
@@ -703,7 +902,7 @@ mod tests {
                 "groups": [{
                     "id": "fxp",
                     "fields": [
-                        { "name": "课时S", "expr": "IF(聚合.请假超额, 0, keshi.课时 ?? 0)" }
+                        { "name": "课时S", "expr": "if 聚合.请假超额 { 0 } else { keshi.课时 ?? 0 }" }
                     ],
                     "overrides": []
                 }]
@@ -719,7 +918,7 @@ mod tests {
         );
         assert_eq!(
             after["scheme"]["groups"][0]["fields"][0]["expr"],
-            "IF(聚合.请假超额, 0, keshi.课时 ?? 0)"
+            "if 聚合.请假超额 { 0 } else { keshi.课时 ?? 0 }"
         );
     }
 
@@ -741,6 +940,105 @@ mod tests {
         assert_eq!(
             after["scheme"]["derived"][0]["columns"][0]["expr"],
             "bukesh.节数 * 参数.代课单价"
+        );
+    }
+
+    #[test]
+    fn propagate_renames_group_id() {
+        let before = json!({
+            "scheme": {
+                "groups": [{
+                    "id": "fxp",
+                    "name": "非校聘",
+                    "fields": []
+                }],
+                "outputs": [{
+                    "kind": {
+                        "patch_template": {
+                            "groups": [
+                                { "group": "fxp", "sheet": "非校聘" },
+                                { "group": "xp", "sheet": "校聘" }
+                            ],
+                            "columns": []
+                        }
+                    }
+                }]
+            }
+        });
+        let mut after = before.clone();
+        after["scheme"]["groups"][0]["id"] = json!("fxp1");
+        let logs = propagate(&before, &mut after);
+        assert!(!logs.is_empty());
+        assert_eq!(after["scheme"]["groups"][0]["id"], "fxp1");
+        assert_eq!(
+            after["scheme"]["outputs"][0]["kind"]["patch_template"]["groups"][0]["group"],
+            "fxp1"
+        );
+        // 无关分组不误改。
+        assert_eq!(
+            after["scheme"]["outputs"][0]["kind"]["patch_template"]["groups"][1]["group"],
+            "xp"
+        );
+    }
+
+    #[test]
+    fn propagate_renames_group_base_field() {
+        let before = json!({
+            "scheme": {
+                "groups": [
+                    {
+                        "id": "fxp",
+                        "name": "非校聘",
+                        "fields": [
+                            { "name": "课时S", "expr": "keshi.课时 ?? 0" },
+                            { "name": "翻倍", "expr": "课时S * 2" }
+                        ],
+                        "overrides": []
+                    },
+                    {
+                        "id": "xp",
+                        "name": "校聘",
+                        "fields": [],
+                        "overrides": [
+                            { "name": "课时S", "expr": "聚合.请假超额" }
+                        ]
+                    }
+                ],
+                "outputs": [{
+                    "kind": {
+                        "patch_template": {
+                            "groups": [],
+                            "columns": [
+                                { "field": "课时S", "header": "课时S", "num_fmt": "0.00" },
+                                { "field": "翻倍", "header": "翻倍", "num_fmt": "0.00" }
+                            ]
+                        }
+                    }
+                }]
+            }
+        });
+        let mut after = before.clone();
+        after["scheme"]["groups"][0]["fields"][0]["name"] = json!("课时数");
+        let logs = propagate(&before, &mut after);
+        assert!(logs.iter().any(|l| l.contains("分组字段名")));
+        // 本组其它字段里的裸 token 引用同步。
+        assert_eq!(
+            after["scheme"]["groups"][0]["fields"][1]["expr"],
+            "课时数 * 2"
+        );
+        // 其它组覆盖行名同步。
+        assert_eq!(
+            after["scheme"]["groups"][1]["overrides"][0]["name"],
+            "课时数"
+        );
+        // 输出列 field 同步。
+        assert_eq!(
+            after["scheme"]["outputs"][0]["kind"]["patch_template"]["columns"][0]["field"],
+            "课时数"
+        );
+        assert_eq!(
+            after["scheme"]["outputs"][0]["kind"]["patch_template"]["columns"][1]["field"],
+            "翻倍"
         );
     }
 }

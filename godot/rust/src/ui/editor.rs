@@ -29,6 +29,7 @@ use super::events::{
     EditorSchemePicked, EditorValidateClicked, NameFieldFocusLost, ParamRemoveClicked,
     ParamTypeChosen, ParamValueEdited,
 };
+use super::groups::{self, GroupDetail as GDetail};
 use super::refs;
 use super::schemes;
 use super::sources::{self, ColRows as SrcCols, SourceRows as SrcRows};
@@ -103,6 +104,34 @@ pub struct EditorNodes {
         "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/ExprRow/AggExprEdit"
     )]
     pub agg_expr_edit: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow/GroupPick")]
+    pub group_pick: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/DetailTitle"
+    )]
+    pub group_detail_title: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/IdRow/GroupIdEdit"
+    )]
+    pub group_id_edit: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/NameRow/GroupNameEdit"
+    )]
+    pub group_name_edit: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/SheetRow/GroupSheetEdit"
+    )]
+    pub group_sheet_edit: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemHead/ItemHint"
+    )]
+    pub group_item_hint: GodotNodeHandle,
+    #[node(
+        "Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemHead/AddItemBtn"
+    )]
+    pub group_add_item_btn: GodotNodeHandle,
+    #[node("Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/ItemBox")]
+    pub group_item_box: GodotNodeHandle,
     #[node("Margin/VBox/Split/LogPanel/Log")]
     pub log: GodotNodeHandle,
 }
@@ -128,6 +157,8 @@ pub struct EditorDoc {
     pub selected_derived: i32,
     /// 聚合页签中当前选中查看详情（id/来源/分组/表达式）的指标序号。
     pub selected_aggregate: i32,
+    /// 计算分组页签中当前选中查看详情（id/字段表）的分组序号。
+    pub selected_group: i32,
 }
 
 /// 动态参数行控件（Gd 非 Send → NonSend）。
@@ -229,6 +260,7 @@ pub fn resolve_editor(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     if refs.nodes.is_some() {
@@ -254,6 +286,7 @@ pub fn resolve_editor(
                     &mut col_rows,
                     &mut ddetail,
                     &mut adetail,
+                    &mut gdetail,
                     &mut godot,
                 );
                 return;
@@ -341,6 +374,7 @@ fn load_current(
     col_rows: &mut SrcCols,
     ddetail: &mut DvDetail,
     adetail: &mut AggDetail,
+    gdetail: &mut GDetail,
     godot: &mut GodotAccess,
 ) {
     let file_name = godot
@@ -391,6 +425,8 @@ fn load_current(
     derived::render_all(nodes, doc, ddetail, godot);
     doc.selected_aggregate = 0;
     aggregates::render_all(nodes, doc, adetail, godot);
+    doc.selected_group = 0;
+    groups::render_all(nodes, doc, gdetail, godot);
     log_ok(
         nodes,
         godot,
@@ -494,6 +530,7 @@ pub fn on_load_clicked(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
@@ -505,6 +542,7 @@ pub fn on_load_clicked(
             &mut col_rows,
             &mut ddetail,
             &mut adetail,
+            &mut gdetail,
             &mut godot,
         );
     }
@@ -519,6 +557,7 @@ pub fn on_scheme_picked(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     if let Some(nodes) = &refs.nodes {
@@ -530,6 +569,7 @@ pub fn on_scheme_picked(
             &mut col_rows,
             &mut ddetail,
             &mut adetail,
+            &mut gdetail,
             &mut godot,
         );
     }
@@ -544,6 +584,7 @@ pub fn on_new_scheme_clicked(
     mut col_rows: bevy::prelude::NonSendMut<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -579,6 +620,8 @@ pub fn on_new_scheme_clicked(
     doc.selected_derived = 0;
     derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
     aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+    doc.selected_group = 0;
+    groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
     log_ok(
         nodes,
         &mut godot,
@@ -593,14 +636,16 @@ pub fn on_add_param_clicked(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建行时丢失。
-    // 派生/聚合详情若引用了被改名的参数，也要先落库，改名传播才能同步到它们。
+    // 派生/聚合/分组详情若引用了被改名的参数，也要先落库，改名传播才能同步到它们。
     let before = doc.raw.clone();
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    groups::flush_open(&mut doc, &gdetail);
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
         log_err(nodes, &mut godot, &format!("新增参数中止：{err}"));
         return;
@@ -630,6 +675,7 @@ pub fn on_add_param_clicked(
     if !renames.is_empty() {
         derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
     }
     log(
         nodes,
@@ -648,6 +694,7 @@ pub fn on_remove_param(
     mut rows: bevy::prelude::NonSendMut<ParamRows>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -656,6 +703,7 @@ pub fn on_remove_param(
     let before = doc.raw.clone();
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    groups::flush_open(&mut doc, &gdetail);
     if let Err(err) = commit_rows_to_raw(&mut doc, &rows) {
         log_err(nodes, &mut godot, &format!("删除参数中止：{err}"));
         return;
@@ -684,6 +732,7 @@ pub fn on_remove_param(
     if !renames.is_empty() {
         derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
     }
     log(
         nodes,
@@ -734,6 +783,7 @@ pub fn on_name_field_focus_lost(
     col_rows: bevy::prelude::NonSend<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = refs.nodes.as_ref() else {
@@ -764,7 +814,15 @@ pub fn on_name_field_focus_lost(
         || adetail
             .id_edit
             .as_ref()
-            .is_some_and(|e| GodotNodeHandle::new(e.clone()) == node);
+            .is_some_and(|e| GodotNodeHandle::new(e.clone()) == node)
+        || gdetail
+            .id_edit
+            .as_ref()
+            .is_some_and(|e| GodotNodeHandle::new(e.clone()) == node)
+        || gdetail
+            .item_name
+            .iter()
+            .any(|e| GodotNodeHandle::new(e.clone()) == node);
     if !is_name_field {
         return;
     }
@@ -794,6 +852,9 @@ pub fn on_name_field_focus_lost(
     if aggregates::write_back(&mut raw, &adetail, doc.selected_aggregate).is_err() {
         return;
     }
+    if groups::write_back(&mut raw, &gdetail, doc.selected_group).is_err() {
+        return;
+    }
 
     let renames = match doc.raw.as_ref() {
         Some(before) => refs::propagate(before, &mut raw),
@@ -806,6 +867,7 @@ pub fn on_name_field_focus_lost(
     if !renames.is_empty() {
         derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
     }
 }
 
@@ -818,6 +880,7 @@ pub fn on_validate_clicked(
     col_rows: bevy::prelude::NonSend<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -858,6 +921,11 @@ pub fn on_validate_clicked(
         log_err(nodes, &mut godot, &format!("校验中止：{err}"));
         return;
     }
+    // 计算分组详情 → raw。
+    if let Err(err) = groups::write_back(&mut raw, &gdetail, doc.selected_group) {
+        log_err(nodes, &mut godot, &format!("校验中止：{err}"));
+        return;
+    }
     // 改名引用传播：id/别名/参数名等被改后，整方案引用同步（只查不改文档）。
     let mut renames = Vec::new();
     if let Some(before) = doc.raw.as_ref() {
@@ -889,6 +957,7 @@ pub fn on_validate_clicked(
         doc.raw = Some(raw);
         derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
         // 数据源/参数行控件即用户刚输入的新名字，无需重建。
     }
 }
@@ -902,6 +971,7 @@ pub fn on_save_clicked(
     col_rows: bevy::prelude::NonSend<SrcCols>,
     mut ddetail: bevy::prelude::NonSendMut<DvDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut gdetail: bevy::prelude::NonSendMut<GDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = &refs.nodes else { return };
@@ -951,6 +1021,11 @@ pub fn on_save_clicked(
         log_err(nodes, &mut godot, &format!("保存失败：{err}"));
         return;
     }
+    // 计算分组详情 → raw。
+    if let Err(err) = groups::write_back(&mut raw, &gdetail, doc.selected_group) {
+        log_err(nodes, &mut godot, &format!("保存失败：{err}"));
+        return;
+    }
     // 改名引用传播：id/别名/参数名等被改后，整方案引用同步后再落盘。
     let renames = match doc.raw.as_ref() {
         Some(before) => refs::propagate(before, &mut raw),
@@ -996,6 +1071,7 @@ pub fn on_save_clicked(
     if !renames.is_empty() {
         derived::render_all(nodes, &doc, &mut ddetail, &mut godot);
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        groups::render_all(nodes, &doc, &mut gdetail, &mut godot);
     }
     log_ok(nodes, &mut godot, &format!("已保存：{new_path}{note}"));
 }
