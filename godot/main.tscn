@@ -37,7 +37,56 @@ button_pressed = true
 layout_mode = 2
 text = "方案编辑"
 
+[node name="HelpNavBtn" type="Button" parent="Shell/NavBar/NavHBox"]
+layout_mode = 2
+text = "说明"
+tooltip_text = "表达式关键字说明与简单示例"
+
 [node name="Content" type="Control" parent="Shell"]
 layout_mode = 2
 size_flags_vertical = 3
 clip_contents = true
+
+[node name="HelpWindow" type="Window" parent="."]
+title = "表达式说明与示例（块语法）"
+size = Vector2i(900, 660)
+min_size = Vector2i(520, 400)
+visible = false
+
+[node name="HelpMargin" type="MarginContainer" parent="HelpWindow"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 12
+
+[node name="HelpVBox" type="VBoxContainer" parent="HelpWindow/HelpMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HelpTitle" type="Label" parent="HelpWindow/HelpMargin/HelpVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "表达式说明与示例（块语法）"
+horizontal_alignment = 1
+
+[node name="HelpText" type="RichTextLabel" parent="HelpWindow/HelpMargin/HelpVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(520, 360)
+bbcode_enabled = true
+scroll_following = true
+
+[node name="HelpButtons" type="HBoxContainer" parent="HelpWindow/HelpMargin/HelpVBox"]
+layout_mode = 2
+alignment = 1
+
+[node name="HelpCloseBtn" type="Button" parent="HelpWindow/HelpMargin/HelpVBox/HelpButtons"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "关闭"

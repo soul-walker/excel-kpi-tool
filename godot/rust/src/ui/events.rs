@@ -31,6 +31,10 @@ pub(crate) struct ShowRunPage;
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct ShowEditorPage;
 
+/// 顶栏“说明”按钮（弹出表达式关键字说明对话框）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct ShowHelpClicked;
+
 /// 编辑器：方案下拉切换（切换即载入当前项）。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct EditorSchemePicked;
@@ -50,6 +54,10 @@ pub(crate) struct EditorValidateClicked;
 /// 编辑器：“新建方案”按钮。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct EditorNewSchemeClicked;
+
+/// 编辑器：“克隆当前方案”按钮（以当前方案为蓝本建一份未保存草稿，供多版本微调）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct EditorCloneClicked;
 
 /// 编辑器：“+ 新增参数”按钮。
 #[derive(Event, Debug, Clone, Copy)]
@@ -156,6 +164,56 @@ pub(crate) struct AddGroupItemClicked;
 /// 编辑器：删除当前分组的第 index 行（基础字段/覆盖行）。
 #[derive(Event, Debug, Clone, Copy)]
 pub(crate) struct GroupItemRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：“+ 新增输出”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddOutputClicked;
+
+/// 编辑器：输出下拉框切换了要编辑的输出（目标序号 = 控件当前选中项）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputPicked;
+
+/// 编辑器：“删除当前输出”（删除下拉当前选中的输出）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct RemoveCurrentOutput;
+
+/// 编辑器：输出方式下拉被改动（重建详情面板；切换会清空原方式下的详细配置）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputKindChanged;
+
+/// 编辑器：新文件输出的“数据来源 from”下拉被改动（列候选随之刷新）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputFromChanged;
+
+/// 编辑器：回写模板的“+ 新增 sheet”（分组→sheet 映射行）。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddOutputSheetClicked;
+
+/// 编辑器：删除当前输出的第 index 个分组→sheet 映射行。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputSheetRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：回写模板的“+ 新增写入列”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddOutputColClicked;
+
+/// 编辑器：删除回写模板第 index 个写入列。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputColRemoveClicked {
+    pub index: i32,
+}
+
+/// 编辑器：新文件输出的“+ 新增列”。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct AddOutputNfColClicked;
+
+/// 编辑器：删除新文件输出第 index 个列。
+#[derive(Event, Debug, Clone, Copy)]
+pub(crate) struct OutputNfColRemoveClicked {
     pub index: i32,
 }
 

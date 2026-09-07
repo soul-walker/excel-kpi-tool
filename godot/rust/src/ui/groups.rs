@@ -14,6 +14,7 @@
 //! 详情面板的重建时机同派生页：任何会重建面板的操作（新增/删除/切换分组、
 //! 加删字段行）都先把当前面板内容写回它所属的分组项（`flush_open`），
 //! 因此编辑不会因重建丢失。
+#![allow(clippy::too_many_arguments)]
 
 use bevy::ecs::observer::On;
 use bevy::prelude::{Res, ResMut};
@@ -36,6 +37,8 @@ use super::events::{
     RemoveCurrentGroup,
 };
 use super::expr;
+use super::outputs;
+use super::outputs::OutputDetail as OutDetail;
 use super::refs;
 use super::view::{LogKind, log_line};
 
@@ -207,7 +210,7 @@ fn render_detail(
         id_edit.set_text("");
         name_edit.set_text("");
         sheet_edit.set_text("");
-        hint.set_text("暂无分组：点「+ 新增分组」后编辑字段公式");
+        hint.set_text("先新增分组，再编辑字段");
         add_btn.set_text("+ 新增一行");
         empty_hint(&mut item_box, "无字段");
         return;
@@ -231,16 +234,15 @@ fn render_detail(
     sheet_edit.set_text(sheet);
 
     let base = is_base(sel as i32);
-    hint.set_text(if base {
-        "基础字段（第 1 组 = 全部分组的共享公式；后续组的覆盖以此为准。字段名必填、表达式必填，可引用本组前列 / 参数.x / 聚合.x / {表}.列）"
+    if base {
+        hint.set_text("基础字段：第 1 组的共享公式（表达式必填）");
+        hint.set_tooltip_text("第 1 组 = 全部分组的共享基础，后续组覆盖以此为准。字段名 + 必填表达式；可引用本组前列 / 参数.x / 聚合.x / {表}.列。");
+        add_btn.set_text("+ 新增基础字段");
     } else {
-        "覆盖（相对第 1 组字段的增量）：字段名填第 1 组里的字段名；表达式留空 = 停用该字段，非空 = 覆盖公式。也可引用第 1 组字段名 / 参数.x / 聚合.x / {表}.列"
-    });
-    add_btn.set_text(if base {
-        "+ 新增基础字段"
-    } else {
-        "+ 新增覆盖"
-    });
+        hint.set_text("覆盖：相对第 1 组字段的增量（留空 = 停用）");
+        hint.set_tooltip_text("字段名填第 1 组里的字段名：表达式留空 = 停用该字段，非空 = 覆盖公式；出现新字段名 = 追加字段。可引用第 1 组字段名 / 参数.x / 聚合.x / {表}.列。");
+        add_btn.set_text("+ 新增覆盖");
+    }
 
     // 字段表（字段名 + 表达式 + 删除）。
     let rows = if base {
@@ -264,7 +266,7 @@ fn render_detail(
     head.set_custom_minimum_size(Vector2::new(140.0, 0.0));
     grid.add_child(&head);
     let mut head = Label::new_alloc();
-    head.set_text("表达式（覆盖行留空 = 停用）");
+    head.set_text("表达式");
     head.set_modulate(gray);
     head.set_h_size_flags(SizeFlags::EXPAND_FILL);
     grid.add_child(&head);
@@ -277,9 +279,9 @@ fn render_detail(
         let mut hint = Label::new_alloc();
         hint.set_name("GroupItemsHint");
         hint.set_text(if base {
-            "无基础字段：点「+ 新增基础字段」开始定义（第 1 组必填公式）"
+            "暂无基础字段：点「+ 新增基础字段」"
         } else {
-            "无覆盖：本组完全继承第 1 组字段"
+            "暂无覆盖：本组完全继承第 1 组字段"
         });
         hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
         grid.add_child(&hint);
@@ -472,8 +474,8 @@ pub(crate) fn flush_open(doc: &mut EditorDoc, detail: &GroupDetail) {
     flush_current(raw, detail);
 }
 
-/// 若刚写入的分组详情含改名（分组 id / 基础字段名），同步全方案引用并返回日志。
-/// 应在 flush_open 之后、模型增删之前调用（数量未变，检测才可靠）。
+// 若刚写入的分组详情含改名（分组 id / 基础字段名），同步全方案引用并返回日志。
+// 应在 flush_open 之后、模型增删之前调用（数量未变，检测才可靠）。
 fn flush_propagate(before: &Option<serde_json::Value>, doc: &mut EditorDoc) -> Vec<String> {
     match (before.as_ref(), doc.raw.as_mut()) {
         (Some(b), Some(a)) => refs::propagate(b, a),
@@ -488,6 +490,7 @@ pub fn on_add_group(
     mut detail: bevy::prelude::NonSendMut<GroupDetail>,
     ddetail: bevy::prelude::NonSend<derived::DerivedDetail>,
     adetail: bevy::prelude::NonSend<aggregates::AggregateDetail>,
+    odetail: bevy::prelude::NonSend<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -496,6 +499,7 @@ pub fn on_add_group(
     flush_open(&mut doc, &detail);
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let n = {
         let Some(gs) = group_mut(&mut doc) else {
@@ -537,6 +541,7 @@ pub fn on_group_picked(
     mut detail: bevy::prelude::NonSendMut<GroupDetail>,
     ddetail: bevy::prelude::NonSend<derived::DerivedDetail>,
     adetail: bevy::prelude::NonSend<aggregates::AggregateDetail>,
+    odetail: bevy::prelude::NonSend<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -556,6 +561,7 @@ pub fn on_group_picked(
     flush_open(&mut doc, &detail);
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     doc.selected_group = idx as i32;
     render_all(nodes, &doc, &mut detail, &mut godot);
@@ -579,6 +585,7 @@ pub fn on_remove_group(
     mut detail: bevy::prelude::NonSendMut<GroupDetail>,
     ddetail: bevy::prelude::NonSend<derived::DerivedDetail>,
     adetail: bevy::prelude::NonSend<aggregates::AggregateDetail>,
+    odetail: bevy::prelude::NonSend<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -587,6 +594,7 @@ pub fn on_remove_group(
     flush_open(&mut doc, &detail);
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let idx = doc.selected_group.max(0) as usize;
     let was_base = idx == 0;
@@ -630,6 +638,7 @@ pub fn on_add_item(
     mut detail: bevy::prelude::NonSendMut<GroupDetail>,
     ddetail: bevy::prelude::NonSend<derived::DerivedDetail>,
     adetail: bevy::prelude::NonSend<aggregates::AggregateDetail>,
+    odetail: bevy::prelude::NonSend<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -638,6 +647,7 @@ pub fn on_add_item(
     flush_open(&mut doc, &detail);
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_group as usize;
     {
@@ -689,6 +699,7 @@ pub fn on_remove_item(
     mut detail: bevy::prelude::NonSendMut<GroupDetail>,
     ddetail: bevy::prelude::NonSend<derived::DerivedDetail>,
     adetail: bevy::prelude::NonSend<aggregates::AggregateDetail>,
+    odetail: bevy::prelude::NonSend<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -698,6 +709,7 @@ pub fn on_remove_item(
     flush_open(&mut doc, &detail);
     derived::flush_open(&mut doc, &ddetail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_group as usize;
     let removed = {

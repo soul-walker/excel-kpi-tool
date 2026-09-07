@@ -31,6 +31,8 @@ use super::events::{
     AddColClicked, AddSourceClicked, ColRemoveClicked, NameFieldFocusLost, SourceColsClicked,
     SourceRemoveClicked,
 };
+use super::outputs;
+use super::outputs::OutputDetail as OutDetail;
 use super::refs;
 use super::view::{LogKind, log_line};
 
@@ -177,7 +179,8 @@ fn render_sources(
     if srcs.is_empty() {
         let mut hint = Label::new_alloc();
         hint.set_name("SourceEmptyHint");
-        hint.set_text("暂无数据源：点上方「+ 新增数据源」（默认带 姓名/主键 列）");
+        hint.set_text("暂无数据源：点「+ 新增数据源」");
+        hint.set_tooltip_text("新增数据源默认带 姓名（主键）列；文件名相对运行月份目录，可到下方「列映射」调整读取列。");
         hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
         box_node.add_child(&hint);
         return;
@@ -288,7 +291,10 @@ fn render_cols(nodes: &EditorNodes, doc: &EditorDoc, cols: &mut ColRows, godot: 
     if columns.is_empty() {
         let mut hint = Label::new_alloc();
         hint.set_name("ColEmptyHint");
-        hint.set_text("该源还没有列：点「+ 新增列」添加（表头即 Excel 列标题文字）");
+        hint.set_text("暂无列：点「+ 新增列」添加");
+        hint.set_tooltip_text(
+            "表头名 = Excel 列标题文字（定位用）；别名 = 表达式里的引用名，如 {数据源id}.{别名}。",
+        );
         hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
         box_node.add_child(&hint);
         return;
@@ -483,10 +489,12 @@ fn flush_and_propagate(
     cols: &ColRows,
     detail: &DerivedDetail,
     adetail: &AggDetail,
+    odetail: &OutDetail,
 ) -> Vec<String> {
     let before = doc.raw.clone();
     derived::flush_open(doc, detail);
     aggregates::flush_open(doc, adetail);
+    outputs::flush_open(doc, odetail);
     flush_open_doc(doc, rows, cols);
     match (before.as_ref(), doc.raw.as_mut()) {
         (Some(b), Some(a)) => refs::propagate(b, a),
@@ -494,12 +502,13 @@ fn flush_and_propagate(
     }
 }
 
-/// 源页面重建后，若传播过改名则重建派生/聚合页，让引用类控件显示同步后的值。
+/// 源页面重建后，若传播过改名则重建派生/聚合/输出页，让引用类控件显示同步后的值。
 fn log_and_sync_derived(
     nodes: &EditorNodes,
     doc: &EditorDoc,
     detail: &mut DerivedDetail,
     adetail: &mut AggDetail,
+    odetail: &mut OutDetail,
     godot: &mut GodotAccess,
     renames: &[String],
 ) {
@@ -509,6 +518,7 @@ fn log_and_sync_derived(
     if !renames.is_empty() {
         derived::render_all(nodes, doc, detail, godot);
         aggregates::render_all(nodes, doc, adetail, godot);
+        outputs::render_all(nodes, doc, odetail, godot);
     }
 }
 
@@ -532,11 +542,12 @@ pub fn on_add_source(
     mut cols: bevy::prelude::NonSendMut<ColRows>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 先把当前行内未保存的编辑提交回 raw，避免下面重建整页时丢失。
-    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail);
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail, &odetail);
     let n = {
         let Some(srcs) = sources_mut(&mut doc) else {
             log_err(nodes, &mut godot, "尚未载入方案");
@@ -556,7 +567,15 @@ pub fn on_add_source(
     };
     doc.selected_source = n as i32 - 1;
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
-    log_and_sync_derived(nodes, &doc, &mut detail, &mut adetail, &mut godot, &renames);
+    log_and_sync_derived(
+        nodes,
+        &doc,
+        &mut detail,
+        &mut adetail,
+        &mut odetail,
+        &mut godot,
+        &renames,
+    );
     log_plain(
         nodes,
         &mut godot,
@@ -572,12 +591,13 @@ pub fn on_remove_source(
     mut cols: bevy::prelude::NonSendMut<ColRows>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     let idx = trigger.event().index;
     // 先把当前行内未保存的编辑提交回 raw，避免删除重建时丢失。
-    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail);
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail, &odetail);
     let removed_id = {
         let Some(srcs) = sources_mut(&mut doc) else {
             return;
@@ -598,7 +618,15 @@ pub fn on_remove_source(
         doc.selected_source = last.max(0);
     }
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
-    log_and_sync_derived(nodes, &doc, &mut detail, &mut adetail, &mut godot, &renames);
+    log_and_sync_derived(
+        nodes,
+        &doc,
+        &mut detail,
+        &mut adetail,
+        &mut odetail,
+        &mut godot,
+        &renames,
+    );
     log_plain(
         nodes,
         &mut godot,
@@ -614,14 +642,23 @@ pub fn on_source_cols(
     mut cols: bevy::prelude::NonSendMut<ColRows>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 切到另一个源前，先把当前源行/列网格的未保存编辑落回 raw。
-    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail);
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail, &odetail);
     doc.selected_source = trigger.event().index.max(0);
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
-    log_and_sync_derived(nodes, &doc, &mut detail, &mut adetail, &mut godot, &renames);
+    log_and_sync_derived(
+        nodes,
+        &doc,
+        &mut detail,
+        &mut adetail,
+        &mut odetail,
+        &mut godot,
+        &renames,
+    );
     let sid = sources_of(&doc)
         .and_then(|s| s.get(doc.selected_source as usize))
         .and_then(|s| s.get("id"))
@@ -638,11 +675,12 @@ pub fn on_add_col(
     mut cols: bevy::prelude::NonSendMut<ColRows>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 先把当前行内未保存的编辑提交回 raw，避免重建列网格时把已编辑列还原。
-    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail);
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail, &odetail);
     let result = (|| -> Result<usize, String> {
         let sel = doc.selected_source as usize;
         let Some(srcs) = sources_mut(&mut doc) else {
@@ -663,7 +701,15 @@ pub fn on_add_col(
     match result {
         Ok(total) => {
             render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
-            log_and_sync_derived(nodes, &doc, &mut detail, &mut adetail, &mut godot, &renames);
+            log_and_sync_derived(
+                nodes,
+                &doc,
+                &mut detail,
+                &mut adetail,
+                &mut odetail,
+                &mut godot,
+                &renames,
+            );
             log_plain(
                 nodes,
                 &mut godot,
@@ -682,12 +728,13 @@ pub fn on_remove_col(
     mut cols: bevy::prelude::NonSendMut<ColRows>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     let idx = trigger.event().index;
     // 先把当前未保存的编辑提交回 raw，避免删列重建时把其它已编辑列还原。
-    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail);
+    let renames = flush_and_propagate(&mut doc, &rows, &cols, &detail, &adetail, &odetail);
     let sel = doc.selected_source as usize;
     let removed = {
         let Some(srcs) = sources_mut(&mut doc) else {
@@ -712,7 +759,15 @@ pub fn on_remove_col(
         removed
     };
     render_all(nodes, &doc, &mut rows, &mut cols, &mut godot);
-    log_and_sync_derived(nodes, &doc, &mut detail, &mut adetail, &mut godot, &renames);
+    log_and_sync_derived(
+        nodes,
+        &doc,
+        &mut detail,
+        &mut adetail,
+        &mut odetail,
+        &mut godot,
+        &renames,
+    );
     log_plain(nodes, &mut godot, &format!("已删除列 [{idx}]：{removed}"));
 }
 

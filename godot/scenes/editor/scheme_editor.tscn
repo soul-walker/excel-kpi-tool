@@ -40,6 +40,11 @@ size_flags_horizontal = 3
 layout_mode = 2
 text = "新建方案"
 
+[node name="CloneBtn" type="Button" parent="Margin/VBox/Toolbar"]
+layout_mode = 2
+text = "克隆"
+tooltip_text = "把当前方案复制成一份新的未保存草稿（自动取名“原名-副本/副本2…”），供多版本微调；改名/改好后点「保存」落盘，原方案不变"
+
 [node name="LoadBtn" type="Button" parent="Margin/VBox/Toolbar"]
 layout_mode = 2
 text = "载入"
@@ -62,7 +67,8 @@ theme_override_constants/separation = 8
 
 [node name="NameLabel" type="Label" parent="Margin/VBox/InfoBox/NameRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(56, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "名称："
 
 [node name="NameEdit" type="LineEdit" parent="Margin/VBox/InfoBox/NameRow"]
@@ -77,7 +83,8 @@ theme_override_constants/separation = 8
 
 [node name="DescLabel" type="Label" parent="Margin/VBox/InfoBox/DescRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(56, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "描述："
 
 [node name="DescEdit" type="LineEdit" parent="Margin/VBox/InfoBox/DescRow"]
@@ -107,10 +114,21 @@ theme_override_constants/separation = 4
 
 [node name="ParamsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="ParamsTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
 layout_mode = 2
-text = "参数（默认整数，填值自动识别类型；可手动指定，保存后写回）"
+theme_override_font_sizes/font_size = 16
+text = "参数"
+
+[node name="InfoParamBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "方案运行期常量，计算字段里写作 参数.名称 引用。\n默认整数：输入数值 / 是·否 / true·false 时自动识别类型；也可点下拉手动指定（指定后不再自动推断）。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
+layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="AddParamBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/参数/ParamsTitleRow"]
@@ -132,12 +150,22 @@ theme_override_constants/separation = 4
 
 [node name="SourcesTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
-[node name="SourcesHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
+[node name="SourcesTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
 layout_mode = 2
-text = "数据源（Excel 台账）：每个数据源一行，点「列映射」编辑该源的读取列"
+theme_override_font_sizes/font_size = 16
+text = "数据源"
+
+[node name="InfoSourceBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "输入台账 = 数据源：一个源对应一个 Excel 文件（相对运行月份目录）。\n每个数据源一行，可改 id（表达式写作 {id}.列）/ 文件名 / Sheet；点「列映射」在下方编辑该源读取哪些列：表头名（定位）→ 别名（表达式引用名）/ 类型 / 是否主键。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
+layout_mode = 2
 size_flags_horizontal = 3
-autowrap_mode = 2
 
 [node name="AddSourceBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/SourcesTitleRow"]
 layout_mode = 2
@@ -154,11 +182,19 @@ theme_override_constants/separation = 4
 
 [node name="ColsTitleRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="ColsTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 15
 text = "列映射"
 size_flags_horizontal = 3
+
+[node name="InfoColsBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "下方是该源要读取的列定义：表头名 = Excel 列标题文字（定位用）；别名 = 表达式里的引用名，如 {数据源id}.{别名}；类型 = 解析成什么类型；勾「主键」= 人的 key 列（如 姓名）。"
 
 [node name="AddColBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/数据源/ColsTitleRow"]
 layout_mode = 2
@@ -179,12 +215,22 @@ theme_override_constants/separation = 4
 
 [node name="DerivedHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="DerivedHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
 layout_mode = 2
-text = "派生视图：从已读表生成新视角（如把\"替上课老师\"列升为主键的代课视角）。下拉切换要编辑的派生，点「+ 新增派生」添加。"
+theme_override_font_sizes/font_size = 16
+text = "派生视图"
+
+[node name="InfoDerivedBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "派生视图 = 从某张已读表（来源 from）按行/列变换生成的新表（如把“替上课老师”列升为主键的代课视角），供计算/输出引用（{id}.列名）。\n不加视图列 = 原样透传输入行；加了视图列则按 列名 = 表达式 重映射；某列写 GROUP_BY({来源}.列) 即按该列分组汇总。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
+layout_mode = 2
 size_flags_horizontal = 3
-autowrap_mode = 2
 
 [node name="AddDerivedBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DerivedHintRow"]
 layout_mode = 2
@@ -196,7 +242,8 @@ theme_override_constants/separation = 4
 
 [node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(72, 0)
+custom_minimum_size = Vector2(104, 0)
+clip_text = true
 text = "编辑派生："
 
 [node name="DerivedPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/PickRow"]
@@ -219,6 +266,7 @@ theme_override_constants/separation = 2
 
 [node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 15
 autowrap_mode = 2
 text = "派生详情（未选中派生）"
 
@@ -228,7 +276,8 @@ theme_override_constants/separation = 4
 
 [node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/IdRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "派生 id："
 
 [node name="DerivedIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/IdRow"]
@@ -242,7 +291,8 @@ theme_override_constants/separation = 4
 
 [node name="FromLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FromRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "来源表 from："
 
 [node name="FromSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FromRow"]
@@ -255,7 +305,8 @@ theme_override_constants/separation = 4
 
 [node name="MergeLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MergeRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "合并续列 on："
 
 [node name="MergeEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/MergeRow"]
@@ -269,7 +320,8 @@ theme_override_constants/separation = 4
 
 [node name="WhereLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(96, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "行过滤 where："
 
 [node name="WhereEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/WhereRow"]
@@ -279,16 +331,19 @@ placeholder_text = "留空=全部行；引用带前缀，如 qingjia.替上课�
 
 [node name="FieldHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="FieldTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2
-text = "视图列定义（列名 = 表达式；引用一律带前缀：{来源}.列 / {本视图}.前列 / 参数.x；某列写 GROUP_BY({来源}.列) 即分组汇总）"
+theme_override_font_sizes/font_size = 15
+text = "视图列（列名 + 表达式，留空 = 同名透传）"
 size_flags_horizontal = 3
-autowrap_mode = 2
+tooltip_text = "输出列 = 列名；表达式里引用一律带前缀：{来源}.列 / {本视图}.前列 / 参数.x；某列写 GROUP_BY({来源}.列) 即按该列分组汇总（GROUP_BY 需单独成列的表达式）。"
 
 [node name="AddFieldBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox/FieldHead"]
 layout_mode = 2
 text = "+ 视图列"
+tooltip_text = "给本派生加一列：填 列名，表达式留空 = 同名透传（与输入行列同名时直接用）。"
 
 [node name="FieldBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/派生/DetailScroll/DetailVBox"]
 layout_mode = 2
@@ -301,12 +356,22 @@ theme_override_constants/separation = 4
 
 [node name="AggHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="AggHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
 layout_mode = 2
-text = "聚合指标：把某来源表按人（group_by 列）汇总成“每人一行”的值（如请假天数/超额判断），供计算字段引用（写作 聚合.指标id）。表达式里引用源列要带前缀，如 qingjia.天数。"
+theme_override_font_sizes/font_size = 16
+text = "聚合指标"
+
+[node name="InfoAggBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "聚合指标 = 把某来源表按人（group_by 列，通常 = 主键“姓名”）汇总成每人一行的标量（如累计请假天数、超额判断），计算字段里写作 聚合.指标id 引用。\n表达式对组内多行求值：SUM/COUNT/AVG/MIN/MAX({来源}.列)，可配 AND OR NOT、if 条件；引用源列必须带 {来源}. 前缀。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
+layout_mode = 2
 size_flags_horizontal = 3
-autowrap_mode = 2
 
 [node name="AddAggBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/AggHintRow"]
 layout_mode = 2
@@ -318,7 +383,8 @@ theme_override_constants/separation = 4
 
 [node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(88, 0)
+custom_minimum_size = Vector2(104, 0)
+clip_text = true
 text = "编辑指标："
 
 [node name="AggPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/PickRow"]
@@ -341,6 +407,7 @@ theme_override_constants/separation = 2
 
 [node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 15
 autowrap_mode = 2
 text = "指标详情（先新增指标）"
 
@@ -350,7 +417,8 @@ theme_override_constants/separation = 4
 
 [node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/IdRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(132, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "指标 id："
 
 [node name="AggIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/IdRow"]
@@ -364,7 +432,8 @@ theme_override_constants/separation = 4
 
 [node name="FromLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(132, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "来源表 from："
 
 [node name="AggFromSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/FromRow"]
@@ -378,7 +447,8 @@ theme_override_constants/separation = 4
 
 [node name="GroupLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/GroupRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(132, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "分组列 group_by："
 
 [node name="AggGroupSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/GroupRow"]
@@ -392,7 +462,8 @@ theme_override_constants/separation = 4
 
 [node name="WhereLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/WhereRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(132, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "行过滤 where："
 
 [node name="AggWhereEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/WhereRow"]
@@ -406,7 +477,8 @@ theme_override_constants/separation = 4
 
 [node name="ExprLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/ExprRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(132, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "表达式 expr："
 
 [node name="AggExprEdit" type="CodeEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/聚合指标/DetailScroll/DetailVBox/ExprRow"]
@@ -420,12 +492,22 @@ theme_override_constants/separation = 4
 
 [node name="GroupHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
 layout_mode = 2
+theme_override_constants/separation = 6
 
 [node name="GroupHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
 layout_mode = 2
-text = "计算分组（不同公式集）：第 1 组是共享基础字段，后续组用覆盖/停用表达增量。下拉切换要编辑的分组，点「+ 新增分组」添加。"
+theme_override_font_sizes/font_size = 16
+text = "计算分组"
+
+[node name="InfoGroupBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "计算分组 = 同一方案里不同人用不同公式集（老场景：非校聘 / 校聘两组，分组条件 = 输出 sheet）。\n第 1 组 = 共享基础字段（fields，公式必填）；后续组用“覆盖”表达差异：表达式留空 = 停用该字段，写公式 = 覆盖第 1 组公式，出现第 1 组没有的新字段名 = 追加字段。\n输出页可按 分组 → sheet 把各组结果写回模板不同工作表。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
+layout_mode = 2
 size_flags_horizontal = 3
-autowrap_mode = 2
 
 [node name="AddGroupBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/GroupHintRow"]
 layout_mode = 2
@@ -437,7 +519,8 @@ theme_override_constants/separation = 4
 
 [node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(72, 0)
+custom_minimum_size = Vector2(104, 0)
+clip_text = true
 text = "编辑分组："
 
 [node name="GroupPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/PickRow"]
@@ -460,6 +543,7 @@ theme_override_constants/separation = 2
 
 [node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 15
 autowrap_mode = 2
 text = "分组详情（先新增分组）"
 
@@ -469,7 +553,8 @@ theme_override_constants/separation = 4
 
 [node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/IdRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(112, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "分组 id："
 
 [node name="GroupIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/IdRow"]
@@ -483,7 +568,8 @@ theme_override_constants/separation = 4
 
 [node name="NameLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/NameRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(112, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "名称："
 
 [node name="GroupNameEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/NameRow"]
@@ -497,7 +583,8 @@ theme_override_constants/separation = 4
 
 [node name="SheetLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/SheetRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(112, 0)
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
 text = "匹配 sheet："
 
 [node name="GroupSheetEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组/DetailScroll/DetailVBox/SheetRow"]
@@ -523,11 +610,270 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 2
 
-[node name="OutputsHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/计算分组"]
+[node name="输出" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs"]
 layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="OutHintRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="OutHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/OutHintRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "输出"
+
+[node name="InfoOutBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/OutHintRow"]
+layout_mode = 2
+flat = true
+text = "？"
+tooltip_text = "输出 = 计算结果写到哪里（可定义多个，下拉切换编辑）。\n· 回写模板 patch_template：打开模板文件，按人（key 列）定位行、按表头名定位列，只改目标单元格，模板其余 sheet/格式原样保留；apply 可 inplace 覆盖+自动 .bak，或 copy 另存副本。\n· 生成新文件 new_file：从某张数据源/派生表导出全新 .xlsx。\n保存后用顶部「校验」做语法/引用检查，实际执行在“运行台”。"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/OutHintRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AddOutputBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/OutHintRow"]
+layout_mode = 2
+text = "+ 新增输出"
+
+[node name="PickRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PickLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/PickRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(104, 0)
+clip_text = true
+text = "编辑输出："
+
+[node name="OutputPick" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/PickRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+
+[node name="DelOutputBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/PickRow"]
+layout_mode = 2
+text = "删除当前输出"
+
+[node name="DetailScroll" type="ScrollContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="DetailVBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="DetailTitle" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
 autowrap_mode = 2
-modulate = Color(0.6, 0.6, 0.6, 1)
-text = "输出（patch 模板列 / groups→sheet）编辑：后续迭代接入"
+text = "输出详情（先新增输出）"
+
+[node name="IdRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IdLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "输出 id："
+
+[node name="OutputIdEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/IdRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 jx / 补课时新表（运行日志与问题定位用；同一方案内不能重名）"
+
+[node name="KindRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="KindLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/KindRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "输出方式 kind："
+
+[node name="OutputKindSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/KindRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+tooltip_text = "回写模板：打开模板文件按人/表头列写入单元格；新文件：从某个明细/派生表生成全新 .xlsx"
+
+[node name="PatchBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+visible = false
+
+[node name="FileRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="FileLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/FileRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "模板文件 file："
+
+[node name="PatchFileEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/FileRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 绩效.xlsx（相对运行月份目录；模板其它 sheet/格式原样保留）"
+
+[node name="ApplyRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ApplyLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/ApplyRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "回写策略 apply："
+
+[node name="PatchApplySelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/ApplyRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+tooltip_text = "inplace：覆盖写回原文件并自动生成 .bak；copy：另存为 .out.xlsx 结果副本，不动原文件"
+
+[node name="CheckRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="AlignPad" type="Control" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/CheckRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+
+[node name="BackupBtn" type="CheckButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/CheckRow"]
+layout_mode = 2
+button_pressed = true
+text = "写前自动备份 .bak"
+
+[node name="DryRunBtn" type="CheckButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/CheckRow"]
+layout_mode = 2
+button_pressed = true
+text = "运行前先 dry-run 预览"
+
+[node name="KeyRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="KeyLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/KeyRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "人员行 key："
+
+[node name="PatchKeyEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/KeyRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "模板中定位人员行的表头名（如 姓名）；留空 = 不按人定位"
+
+[node name="SheetHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+
+[node name="SheetHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/SheetHead"]
+layout_mode = 2
+text = ""
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddSheetBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/SheetHead"]
+layout_mode = 2
+text = "+ 新增 sheet"
+
+[node name="SheetGridBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="ColHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+
+[node name="ColHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/ColHead"]
+layout_mode = 2
+text = ""
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddColBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox/ColHead"]
+layout_mode = 2
+text = "+ 新增写入列"
+
+[node name="ColGridBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/PatchBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="NfBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+visible = false
+
+[node name="NfFileRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NfFileLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfFileRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "生成文件 file："
+
+[node name="NfFileEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfFileRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "如 补课时.xlsx（全新生成，含表头）"
+
+[node name="NfFromRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NfFromLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfFromRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "数据来源 from："
+
+[node name="NfFromSelect" type="OptionButton" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfFromRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+tooltip_text = "从哪个数据源/派生表生成新文件（切换后列候选随新来源刷新）"
+
+[node name="NfSheetRow" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NfSheetLabel" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfSheetRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 0)
+clip_text = true
+text = "写入 sheet："
+
+[node name="NfSheetEdit" type="LineEdit" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfSheetRow"]
+layout_mode = 3
+size_flags_horizontal = 3
+placeholder_text = "新文件里的 sheet 名，如 补课时"
+
+[node name="NfColHead" type="HBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox"]
+layout_mode = 2
+
+[node name="NfColHint" type="Label" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfColHead"]
+layout_mode = 2
+text = ""
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="AddNfColBtn" type="Button" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox/NfColHead"]
+layout_mode = 2
+text = "+ 新增列"
+
+[node name="NfColGridBox" type="VBoxContainer" parent="Margin/VBox/Split/LeftPanel/LeftVBox/Tabs/输出/DetailScroll/DetailVBox/NfBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
 
 [node name="LogPanel" type="PanelContainer" parent="Margin/VBox/Split"]
 layout_mode = 2

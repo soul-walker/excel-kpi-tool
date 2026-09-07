@@ -8,6 +8,7 @@
 //! - `derived`：编辑器派生视图页签；
 //! - `aggregates`：编辑器聚合指标页签；
 //! - `groups`：编辑器计算分组页签；
+//! - `outputs`：编辑器输出定义页签；
 //! - `nav`：主场景路由（顶栏导航 → 页面场景的生成/切换）；
 //! - `setup`：运行台场景节点句柄解析与初始化；
 //! - `handlers`：运行台事件处理（读输入 → 引擎 → 日志）；
@@ -22,6 +23,7 @@ pub mod expr;
 pub mod groups;
 pub mod handlers;
 pub mod nav;
+pub mod outputs;
 pub mod refs;
 pub mod schemes;
 pub mod setup;
@@ -31,14 +33,17 @@ pub mod view;
 use bevy::app::{App, Plugin};
 use events::{
     AddAggregateClicked, AddColClicked, AddDerivedClicked, AddDerivedFieldClicked, AddGroupClicked,
-    AddGroupItemClicked, AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked,
+    AddGroupItemClicked, AddOutputClicked, AddOutputColClicked, AddOutputNfColClicked,
+    AddOutputSheetClicked, AddSourceClicked, AggFromChanged, AggregatePicked, BrowseMonthClicked,
     ColRemoveClicked, DerivedFieldRemoveClicked, DerivedPicked, EditorAddParamClicked,
-    EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked, EditorSchemePicked,
-    EditorValidateClicked, ExprCompletionRequested, ExprFocusEntered, ExprFocusExited,
-    ExprTextChanged, GroupItemRemoveClicked, GroupPicked, MonthDirPicked, NameFieldFocusLost,
-    ParamRemoveClicked, ParamTypeChosen, ParamValueEdited, RemoveCurrentAggregate,
-    RemoveCurrentDerived, RemoveCurrentGroup, RunClicked, ShowEditorPage, ShowRunPage,
-    SourceColsClicked, SourceRemoveClicked, ValidateClicked,
+    EditorCloneClicked, EditorLoadClicked, EditorNewSchemeClicked, EditorSaveClicked,
+    EditorSchemePicked, EditorValidateClicked, ExprCompletionRequested, ExprFocusEntered,
+    ExprFocusExited, ExprTextChanged, GroupItemRemoveClicked, GroupPicked, MonthDirPicked,
+    NameFieldFocusLost, OutputColRemoveClicked, OutputFromChanged, OutputKindChanged,
+    OutputNfColRemoveClicked, OutputPicked, OutputSheetRemoveClicked, ParamRemoveClicked,
+    ParamTypeChosen, ParamValueEdited, RemoveCurrentAggregate, RemoveCurrentDerived,
+    RemoveCurrentGroup, RemoveCurrentOutput, RunClicked, ShowEditorPage, ShowHelpClicked,
+    ShowRunPage, SourceColsClicked, SourceRemoveClicked, ValidateClicked,
 };
 use godot_bevy::prelude::{GodotDefaultPlugins, GodotSignalsPlugin};
 use view::UiRefs;
@@ -55,11 +60,13 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<BrowseMonthClicked>::default())
             .add_plugins(GodotSignalsPlugin::<MonthDirPicked>::default())
             .add_plugins(GodotSignalsPlugin::<ShowEditorPage>::default())
+            .add_plugins(GodotSignalsPlugin::<ShowHelpClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorSchemePicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorLoadClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorSaveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorValidateClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorNewSchemeClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<EditorCloneClicked>::default())
             .add_plugins(GodotSignalsPlugin::<EditorAddParamClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ParamRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ParamValueEdited>::default())
@@ -83,6 +90,17 @@ impl Plugin for UiPlugin {
             .add_plugins(GodotSignalsPlugin::<RemoveCurrentGroup>::default())
             .add_plugins(GodotSignalsPlugin::<AddGroupItemClicked>::default())
             .add_plugins(GodotSignalsPlugin::<GroupItemRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddOutputClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputPicked>::default())
+            .add_plugins(GodotSignalsPlugin::<RemoveCurrentOutput>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputKindChanged>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputFromChanged>::default())
+            .add_plugins(GodotSignalsPlugin::<AddOutputSheetClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputSheetRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddOutputColClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputColRemoveClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<AddOutputNfColClicked>::default())
+            .add_plugins(GodotSignalsPlugin::<OutputNfColRemoveClicked>::default())
             .add_plugins(GodotSignalsPlugin::<ExprTextChanged>::default())
             .add_plugins(GodotSignalsPlugin::<ExprCompletionRequested>::default())
             .add_plugins(GodotSignalsPlugin::<ExprFocusEntered>::default())
@@ -94,6 +112,7 @@ impl Plugin for UiPlugin {
         app.init_resource::<editor::EditorDoc>();
         app.init_resource::<nav::ContentHost>();
         app.init_resource::<nav::ActivePage>();
+        app.init_resource::<nav::HelpRefs>();
         app.init_resource::<expr::TextLenMap>();
         app.insert_non_send_resource(editor::ParamRows::default());
         app.insert_non_send_resource(sources::SourceRows::default());
@@ -101,8 +120,9 @@ impl Plugin for UiPlugin {
         app.insert_non_send_resource(derived::DerivedDetail::default());
         app.insert_non_send_resource(aggregates::AggregateDetail::default());
         app.insert_non_send_resource(groups::GroupDetail::default());
+        app.insert_non_send_resource(outputs::OutputDetail::default());
 
-        app.add_systems(bevy::prelude::Startup, nav::setup_router);
+        app.add_systems(bevy::prelude::Startup, (nav::setup_router, nav::setup_help));
         app.add_systems(
             bevy::prelude::Update,
             (
@@ -113,6 +133,7 @@ impl Plugin for UiPlugin {
                 derived::connect_derived_signals,
                 aggregates::connect_aggregates_signals,
                 groups::connect_groups_signals,
+                outputs::connect_outputs_signals,
                 devshot::dev_shot_system,
             ),
         );
@@ -126,6 +147,7 @@ impl Plugin for UiPlugin {
         app.add_observer(editor::on_save_clicked);
         app.add_observer(editor::on_validate_clicked);
         app.add_observer(editor::on_new_scheme_clicked);
+        app.add_observer(editor::on_clone_clicked);
         app.add_observer(editor::on_add_param_clicked);
         app.add_observer(editor::on_remove_param);
         app.add_observer(editor::on_value_edited);
@@ -150,11 +172,23 @@ impl Plugin for UiPlugin {
         app.add_observer(groups::on_remove_group);
         app.add_observer(groups::on_add_item);
         app.add_observer(groups::on_remove_item);
+        app.add_observer(outputs::on_add_output);
+        app.add_observer(outputs::on_output_picked);
+        app.add_observer(outputs::on_remove_output);
+        app.add_observer(outputs::on_kind_changed);
+        app.add_observer(outputs::on_from_changed);
+        app.add_observer(outputs::on_add_sheet);
+        app.add_observer(outputs::on_remove_sheet);
+        app.add_observer(outputs::on_add_col);
+        app.add_observer(outputs::on_remove_col);
+        app.add_observer(outputs::on_add_nf_col);
+        app.add_observer(outputs::on_remove_nf_col);
         app.add_observer(expr::on_expr_text_changed);
         app.add_observer(expr::on_expr_completion);
         app.add_observer(expr::on_expr_focus_entered);
         app.add_observer(expr::on_expr_focus_exited);
         app.add_observer(nav::on_show_run_page);
         app.add_observer(nav::on_show_editor_page);
+        app.add_observer(nav::on_show_help);
     }
 }

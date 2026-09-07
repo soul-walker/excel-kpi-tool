@@ -31,6 +31,8 @@ use super::events::{
     NameFieldFocusLost, RemoveCurrentDerived,
 };
 use super::expr;
+use super::outputs;
+use super::outputs::OutputDetail as OutDetail;
 use super::refs;
 use super::view::{LogKind, log_line};
 
@@ -287,7 +289,7 @@ fn render_detail(
         head_label(&mut grid, "删除", 0.0, false, gray);
         if columns.is_empty() {
             let mut hint = Label::new_alloc();
-            hint.set_text("无视图列：派生原样透传输入行（合并/过滤视图）或点「+ 视图列」定义输出");
+            hint.set_text("暂无视图列：点「+ 视图列」定义（不加 = 原样透传输入行）");
             hint.set_modulate(godot::builtin::Color::from_rgb(0.6, 0.6, 0.6));
             grid.add_child(&hint);
         }
@@ -502,14 +504,16 @@ pub fn on_add_derived(
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
     // 先把当前详情面板未保存的编辑提交回 raw，避免新增/重建把上一个派生的编辑冲掉；
-    // 聚合页面板也一并落库（它的编辑同样要参与改名传播）。
+    // 聚合/输出页面板也一并落库（它们的编辑同样要参与改名传播）。
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let candidates = table_candidates(&doc);
     let n = {
@@ -529,6 +533,7 @@ pub fn on_add_derived(
     render_all(nodes, &doc, &mut detail, &mut godot);
     if !renames.is_empty() {
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        outputs::render_all(nodes, &doc, &mut odetail, &mut godot);
     }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
@@ -547,6 +552,7 @@ pub fn on_derived_picked(
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -565,11 +571,13 @@ pub fn on_derived_picked(
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     doc.selected_derived = idx as i32;
     render_all(nodes, &doc, &mut detail, &mut godot);
     if !renames.is_empty() {
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        outputs::render_all(nodes, &doc, &mut odetail, &mut godot);
     }
     let ds = derived_arr(&doc);
     let id = ds
@@ -590,6 +598,7 @@ pub fn on_remove_current(
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -597,6 +606,7 @@ pub fn on_remove_current(
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let idx = doc.selected_derived.max(0) as usize;
     let removed_id = {
@@ -621,6 +631,7 @@ pub fn on_remove_current(
     render_all(nodes, &doc, &mut detail, &mut godot);
     if !renames.is_empty() {
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        outputs::render_all(nodes, &doc, &mut odetail, &mut godot);
     }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
@@ -634,6 +645,7 @@ pub fn on_add_field(
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -641,6 +653,7 @@ pub fn on_add_field(
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_derived as usize;
     {
@@ -668,6 +681,7 @@ pub fn on_add_field(
     render_all(nodes, &doc, &mut detail, &mut godot);
     if !renames.is_empty() {
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        outputs::render_all(nodes, &doc, &mut odetail, &mut godot);
     }
     for line in &renames {
         log_plain(nodes, &mut godot, line);
@@ -685,6 +699,7 @@ pub fn on_remove_field(
     mut doc: ResMut<EditorDoc>,
     mut detail: bevy::prelude::NonSendMut<DerivedDetail>,
     mut adetail: bevy::prelude::NonSendMut<AggDetail>,
+    mut odetail: bevy::prelude::NonSendMut<OutDetail>,
     mut godot: GodotAccess,
 ) {
     let Some(nodes) = nodes_of(&refs) else { return };
@@ -693,6 +708,7 @@ pub fn on_remove_field(
     let before = doc.raw.clone();
     flush_open(&mut doc, &detail);
     aggregates::flush_open(&mut doc, &adetail);
+    outputs::flush_open(&mut doc, &odetail);
     let renames = flush_propagate(&before, &mut doc);
     let sel = doc.selected_derived as usize;
     let removed = {
@@ -717,6 +733,7 @@ pub fn on_remove_field(
     render_all(nodes, &doc, &mut detail, &mut godot);
     if !renames.is_empty() {
         aggregates::render_all(nodes, &doc, &mut adetail, &mut godot);
+        outputs::render_all(nodes, &doc, &mut odetail, &mut godot);
     }
     for line in &renames {
         log_plain(nodes, &mut godot, line);

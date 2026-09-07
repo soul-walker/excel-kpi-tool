@@ -615,6 +615,24 @@ impl Scheme {
                 &format!("groups.{} 的字段名", g.id),
                 g.fields.iter().map(|f| f.name.as_str()),
             );
+            // 基础字段/覆盖表达式语法：与运行期一致先 parse——旧 IF(c,a,b) 等写法
+            // 在这里就报错，避免“校验通过但运行失败”。
+            for (rows, kind) in [(&g.fields, "fields"), (&g.overrides, "overrides")] {
+                for f in rows {
+                    let Some(text) = f.expr.as_deref() else {
+                        continue;
+                    };
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    if let Err(e) = calc::parse(text) {
+                        out.push(Issue::error(
+                            format!("groups.{}.{}.{}", g.id, kind, f.name),
+                            format!("表达式解析失败: {e}"),
+                        ));
+                    }
+                }
+            }
         }
 
         // —— 输出 ——
@@ -881,5 +899,35 @@ mod tests {
             .map(|i| format!("{}: {}", i.location, i.message))
             .collect();
         assert!(errors.is_empty(), "样例方案不应有 error: {errors:#?}");
+    }
+
+    /// 计算分组字段里残留旧 IF(c,a,b) 写法：静态校验应直接报“已移除”提示，
+    /// 而不是等运行时（dry-run/写回）才失败。
+    #[test]
+    fn legacy_if_in_group_field_rejected_at_validate() {
+        let raw = r#"{
+            "schema_version": 1,
+            "scheme": {
+                "name": "旧写法回归",
+                "entity": { "key_field": "姓名", "duplicate": "report" },
+                "groups": [
+                    {
+                        "id": "fxp",
+                        "name": "非校聘",
+                        "fields": [
+                            { "name": "课时S", "expr": "IF(false, 0, 1)" }
+                        ]
+                    }
+                ]
+            }
+        }"#;
+        let v = VersionedScheme::from_json_str(raw).expect("JSON 应可解析");
+        let issues = v.scheme.validate();
+        assert!(
+            issues
+                .iter()
+                .any(|i| { i.severity == Severity::Error && i.message.contains("已移除") }),
+            "校验应报旧 IF 函数写法已被移除: {issues:?}"
+        );
     }
 }
