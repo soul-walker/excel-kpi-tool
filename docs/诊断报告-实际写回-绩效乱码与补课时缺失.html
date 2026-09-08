@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>诊断报告：高中月绩效复刻 · 实际写回后「无补课时表 + 绩效表乱码」</title>
+<style>
+  :root{
+    --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb;
+    --accent:#0f766e; --accent-bg:#f0fdfa;
+    --warn:#b45309; --warn-bg:#fffbeb;
+    --err:#b91c1c; --err-bg:#fef2f2;
+    --code:#166534; --code-bg:#f6f8f7;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;color:var(--ink);margin:0;background:#fafafa;line-height:1.65}
+  main{max-width:1080px;margin:0 auto;padding:32px 28px 80px}
+  h1{font-size:26px;border-bottom:3px solid var(--accent);padding-bottom:10px}
+  h2{font-size:20px;margin-top:42px;padding-left:10px;border-left:5px solid var(--accent)}
+  h3{font-size:16px;margin-top:26px;color:#115e59}
+  .meta{color:var(--sub);font-size:13px;margin-top:6px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .tag{display:inline-block;padding:1px 10px;border-radius:99px;font-size:12px;margin-right:6px;white-space:nowrap}
+  .tag.err{background:var(--err-bg);color:var(--err);border:1px solid #fecaca}
+  .tag.warn{background:var(--warn-bg);color:var(--warn);border:1px solid #fde68a}
+  .tag.ok{background:var(--accent-bg);color:var(--accent);border:1px solid #99f6e4}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px;background:#fff}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#f3f4f6;white-space:nowrap}
+  code{font-family:Consolas,"Courier New",monospace;font-size:12.5px;background:var(--code-bg);color:var(--code);padding:1px 5px;border-radius:4px}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+  .box{border-radius:8px;padding:12px 16px;margin:14px 0}
+  .box.info{background:var(--accent-bg);border:1px solid #99f6e4}
+  .box.warn{background:var(--warn-bg);border:1px solid #fde68a}
+  .box.err{background:var(--err-bg);border:1px solid #fecaca}
+  .small{font-size:12.5px;color:var(--sub)}
+  ul,ol{padding-left:24px}
+  .toc{columns:2;-webkit-columns:2}
+  @media(max-width:760px){.toc{columns:1;-webkit-columns:1}}
+  .file{font-weight:600}
+  .num{color:#0f766e;font-weight:700}
+  .foot{margin-top:60px;border-top:1px solid var(--line);padding-top:12px;color:var(--sub);font-size:12.5px}
+</style>
+</head>
+<body>
+<main>
+<h1>诊断报告：高中月绩效复刻 · 实际写回后「无补课时表 + 绩效表乱码」</h1>
+<div class="meta">日期：2026-09-08　·　工作目录：<code>excel-kpi-tool</code>　·　Git HEAD：<code>c225ad0</code>　·　数据月份：<code>testdata/2023-09</code></div>
+
+<div class="card">
+<b>一句话结论：</b>两个现象是两个相互独立的缺陷，都发生在「写回」环节：
+<ul>
+<li><b>① 不生成 补课时.xlsx</b> —— 你选的方案 <code>schemes/高中月绩效复刻.json</code> 的 <code>outputs</code> 里<b>只写了 1 个输出</b>（回写 绩效.xlsx），从未包含「把派生表 bukesh 写成 补课时.xlsx 的 new_file 输出」。运行器忠实地只做了方案里声明的那一件事。旧的样例方案 <code>高中月绩效.scheme.json</code> 是含两个输出的，复刻方案在做表达式迁移时把它漏掉了。</li>
+<li><b>② 绩效表出现一串名字</b> —— 你把绩效表数据区清空后保存时，表格软件（该文件元数据显示是 <b>腾讯 Office / Tencent office</b>）把目标单元格全部写成了 <code>t="s"</code>（共享字符串型）的空单元格；引擎的「最小 XML patch」写值时<b>只替换 &lt;v&gt; 文本、不会改单元格的 t 类型</b>，于是把数字 100 等写进了字符串型单元格。Excel 一族会把 <code>&lt;v&gt;100&lt;/v&gt;</code> 当作「共享字符串表第 100 项」去显示——正好是老师的姓名（如「肖雅静」）。<b>计算本身是对的，是单元格类型被写坏</b>。</li>
+</ul>
+</div>
+
+<h2>目录</h2>
+<div class="toc">
+<ol>
+<li><a href="#s1">操作路径与现象</a></li>
+<li><a href="#s2">复现方法与证据</a></li>
+<li><a href="#s3">根因①：方案缺补课时 new_file 输出</a></li>
+<li><a href="#s4">根因②：XML patch 把数值写进字符串型单元格</a></li>
+<li><a href="#s5">为什么校验 / Dry-run 都没拦住</a></li>
+<li><a href="#s6">代码定位</a></li>
+<li><a href="#s7">对现有数据的损害与恢复方法</a></li>
+<li><a href="#s8">修复建议（待你拍板）</a></li>
+<li><a href="#s9">遗留风险提示</a></li>
+</ol>
+</div>
+
+<h2 id="s1">1. 操作路径与现象</h2>
+<div class="card">
+<table>
+<tr><th style="width:160px">步骤</th><th>操作</th><th>结果</th></tr>
+<tr><td>1</td><td>Godot 运行台选方案「高中月绩效复刻」，月份目录选 <code>testdata/2023-09</code>，点「校验方案」</td><td>校验通过（无 error）</td></tr>
+<tr><td>2</td><td>删掉旧的 <code>testdata/2023-09/补课时.xlsx</code></td><td>工作区里该文件被删除（<code>git status</code> 可见 deleted）</td></tr>
+<tr><td>3</td><td>打开 <code>绩效.xlsx</code> 清空数据区后保存（元数据记录为 Tencent office 保存）</td><td>数值格变成 <code>t="s"</code> 空单元格（即运行时的 .bak 状态）</td></tr>
+<tr><td>4</td><td>点「实际运行（写回+.bak）」</td><td>日志只出现 1 个输出 <code>jx</code>；<code>绩效.xlsx</code> 被写坏（一串姓名/乱码），<b>没有生成 补课时.xlsx</b>；同时留下 <code>绩效.xlsx.bak</code></td></tr>
+</table>
+<p class="small">工作区当时的 <code>git status</code>：<code>绩效.xlsx</code> 被修改（=被写坏的产物）、<code>补课时.xlsx</code> 被删除、<code>绩效.xlsx.bak</code> 未跟踪（=写回前引擎自动备份的「清空后模板」）。</p>
+</div>
+
+<h2 id="s2">2. 复现方法与证据</h2>
+<p>没有改任何代码，直接用仓库里的引擎 CLI 复现：</p>
+<pre><code># ① 干净模板（HEAD 版本 绩效.xlsx）实际写回 —— 一切正常、数值正确
+cargo run -q -p kpi-engine --example run_scheme -- \
+    schemes/高中月绩效复刻.json /tmp/repro_a
+# → [out] jx [patch_template] ...绩效.xlsx —— 计划写 2423 个单元格
+# → [ok] 1 个输出完成        ← 注意：整个方案只有 1 个输出，没有补课时
+
+# ② 用「清空后」的 绩效.xlsx（即用户写回前的 .bak 状态）当模板实际写回 —— 复现乱码
+cargo run -q -p kpi-engine --example run_scheme -- \
+    schemes/高中月绩效复刻.json /tmp/repro_b
+# → 同样只写回绩效，结果全是字符串型乱码单元格</code></pre>
+
+<div class="box info"><b>证据 1｜同一个人的同一行，两种模板写出的 XML 对照（sheet 非校聘，第 3 行，人=虎云兵）：</b>
+<table>
+<tr><th>列（字段）</th><th>干净模板 → 写回</th><th>清空模板（Tencent 保存）→ 写回</th></tr>
+<tr><td>J3 考勤奖(应为100)</td><td><code>&lt;c r="J3" s="73"&gt;&lt;v&gt;100&lt;/v&gt;&lt;/c&gt;</code> 数值正常</td><td><code>&lt;c r="J3" s="75" t="s"&gt;&lt;v&gt;100&lt;/v&gt;&lt;/c&gt;</code> 被当成共享字符串 #100 → 显示 <b>肖雅静</b></td></tr>
+<tr><td>K3 岗位奖(应为50)</td><td><code>&lt;v&gt;50&lt;/v&gt;</code> 数值正常</td><td>同形 → 显示 <b>梁建</b></td></tr>
+<tr><td>D3 课时S(应为0)</td><td><code>&lt;v&gt;0&lt;/v&gt;</code> 数值正常</td><td>#0 是空串，显示为空白</td></tr>
+<tr><td>AA3 上浮30%(453.44)</td><td>数值正常</td><td>非整数下标、越界 → 空 / 异常</td></tr>
+</table>
+</div>
+
+<div class="box info"><b>证据 2｜写进去的数字本体是对的</b>：对比同一行在干净模板运行结果与旧程序 golden（<code>2023-09-golden/kpi/绩效.xlsx</code>），D3…AB3 的值完全一致（0 / 100 / 50 / 497 / 150 / 198.8 / 348.8 / 453.44 / 453）。说明计算引擎没有算错，问题出在「把对的数写成了字符串类型」。</div>
+
+<div class="box info"><b>证据 3｜补课时确实没被安排</b>：dry-run 与实跑日志都只有 <code>[jx] patch_template</code> 一个输出；方案 JSON 的 <code>outputs</code> 数组也只有一项（详见第 3 节）。</div>
+<h2 id="s3">3. 根因①：方案缺「补课时」new_file 输出</h2>
+<div class="card">
+<h3>3.1 现象层面的解释</h3>
+<p>运行器 <code>runner::run_scheme_outputs</code> 的行为是：<b>方案里声明了几个输出，就跑几个</b>（遍历 <code>scheme.outputs</code>）。你选的方案 JSON 里 <code>outputs</code> 只有 1 个：</p>
+<pre><code>schemes/高中月绩效复刻.json → outputs 数组仅一项：
+  [0] id="jx"，kind="patch_template"，file="绩效.xlsx"（回写 非校聘/校聘 两个 sheet）</code></pre>
+<p>所以点「实际写回」只会写 <code>绩效.xlsx</code>，不可能凭空生成 <code>补课时.xlsx</code>。</p>
+
+<h3>3.2 方案文件为什么缺这一项（溯源）</h3>
+<ul>
+<li>M0 样例方案 <code>schemes/高中月绩效.scheme.json</code> 里是有两个输出的：<code>jx</code>（回写绩效）+ <code>bks</code>（<code>new_file</code>，把派生表 <code>bukei</code> 写成 <code>补课时.xlsx</code>）。</li>
+<li>M1 的复刻方案 <code>高中月绩效复刻.json</code> 在把表达式迁移为块语法时，只保留了计算需要的<b>派生视图</b> <code>bukesh</code>（供绩效表里的「补课时」列引用 <code>bukesh.费用</code>），<b>忘了把对应的 new_file 输出一并带过来</b>——从该文件最早一次提交（c126902）起就一直是单输出，属于漏项而非本次运行引入。</li>
+<li>引擎本身完全支持这种输出，证据：<code>runner.rs</code> 单测 <code>run_outputs_inplace_backup_and_match_golden</code> 和 <code>exec.rs</code> 单测 <code>bukeshi_new_file_matches_golden</code> 里，都在运行前<b>手动往方案内存对象里追加</b>一个 new_file 输出：</li>
+</ul>
+<pre><code>// engine/src/runner.rs（单测，注释原文）
+// 追加一个 new_file 输出（补课时新表），走同一个运行入口。
+v.scheme.outputs.push(OutputSpec {
+    id: "补课时新表".into(),
+    kind: OutputKind::NewFile(NewFileOutput {
+        file: "{monthDir}/补课时.xlsx".into(),
+        from: "bukesh".into(),
+        sheet: "替上课补课时".into(),
+        columns: vec![ 姓名, 节数, 费用 ],
+    }),
+});</code></pre>
+<p class="small">也就是「测试代码帮方案补上了它本该自带的那一项」——方案文件缺输出这件事，仓库里早有痕迹。</p>
+
+<div class="box warn"><b>修复动作 A</b>：在 <code>高中月绩效复刻.json</code> 的 <code>outputs</code> 里追加第二个输出（new_file：<code>bukesh</code> → <code>补课时.xlsx</code>，sheet <code>替上课补课时</code>，列 姓名/节数/费用），并同步把 runner.rs / exec.rs 单测里「手动追加」的部分删掉、改为断言方案自带两个输出。字段名与派生表列名在方案里现成，GUI 输出页也能加。</div>
+</div>
+
+<h2 id="s4">4. 根因②：XML patch 把数值写进了字符串型单元格</h2>
+<div class="card">
+<h3>4.1 机理</h3>
+<ol>
+<li>引擎的模板回写是「最小 XML patch」：<code>plan_template_patch</code> 算出值后，只把目标单元格 <code>&lt;c&gt;</code> 里 <code>&lt;v&gt;</code> 的文本替换掉（<code>xmlpatch.rs</code> 的 <code>patch_one</code>）。它<b>完全不管单元格的 t（类型）属性</b>，也不管旧值是不是字符串下标。</li>
+<li>你清空绩效表数据时用的表格软件把空单元格存成了 <code>&lt;c r="…" s="…" t="s"/&gt;</code>（字符串型空单元格）。该文件 <code>docProps/app.xml</code> 里 <code>&lt;Application&gt;Tencent office&lt;/Application&gt;</code>，即腾讯 Office 保存；对照写回前的 .bak，数据区 J3、K3 等全部是 <code>t="s"</code> 空单元格。</li>
+<li>patch 往 <code>&lt;c … t="s"/&gt;</code> 里填 <code>&lt;v&gt;100&lt;/v&gt;</code> 后得到 <code>&lt;c r="J3" s="75" t="s"&gt;&lt;v&gt;100&lt;/v&gt;&lt;/c&gt;</code>。按 OOXML 规则，<code>t="s"</code> 单元格的 <code>&lt;v&gt;</code> 是<b>共享字符串表下标</b>——Excel / WPS / 腾讯表格打开时把 <code>100</code> 解释为「第 100 项字符串」。而绩效模板的共享字符串表里 0~141 项恰好是表头 + 全校老师姓名。</li>
+</ol>
+<table>
+<tr><th>应写数值</th><th>写进字符串表下标</th><th>表格实际显示</th></tr>
+<tr><td>100（考勤奖等）</td><td>#100</td><td><b>肖雅静</b>（老师姓名）</td></tr>
+<tr><td>50（岗位奖）</td><td>#50</td><td><b>梁建</b>（老师姓名）</td></tr>
+<tr><td>40（纯行政岗位奖）</td><td>#40</td><td><b>吴红莲</b>（老师姓名）</td></tr>
+<tr><td>30 及更小的整数</td><td>#3…#30</td><td><b>姓名 / 课时S / 考勤奖</b> 等表头文本</td></tr>
+<tr><td>0</td><td>#0</td><td>空串（看似空白）</td></tr>
+<tr><td>小数（198.8 等）或大于 141 的整数</td><td>非法下标</td><td>空白 / 异常（取决于客户端宽容度）</td></tr>
+</table>
+<p>对写回的 2423 个单元格做统计：唯一值 421 个，其中 <span class="num">121 个</span>是 1..141 的整数——这些单元格都会被显示成「人名字典」，正是你看到的「乱七八糟的名字」。</p>
+
+<h3>4.2 为什么以前（仓库里已提交的 绩效.xlsx）是好的</h3>
+<p>Git 里已提交的 <code>绩效.xlsx</code>（与 golden 相同）数据区单元格是<b>无 t 属性的纯数值单元格</b>。用这种模板回写时，patch 得到的是正常数值格（第 2 节「干净模板」列已验证）。<b>缺陷是模板依赖的</b>：模板目标列一旦是字符串型空单元格，写回即乱码。</p>
+
+<div class="box warn"><b>修复动作 B</b>：写回层要按值的类型管理单元格类型——写数值时保证目标 <code>&lt;c&gt;</code> 不带 <code>t="s"</code>（必要时把 t 属性从开标签里剥掉）；清空（空值）时移除 <code>&lt;v&gt;</code>（可顺带清 t，避免残留字符串型空单元格）。并补回归单测：用「数据区全是 <code>t="s"</code> 空单元格」的模板跑一遍，再用 calamine 回读断言是 <code>Data::Int/Float</code> 而不是 <code>Data::String</code>。</div>
+</div>
+
+<h2 id="s5">5. 为什么校验 / Dry-run 都没拦住</h2>
+<div class="card">
+<table>
+<tr><th>检查点</th><th>为什么漏过</th></tr>
+<tr><td>方案校验（validate）</td><td>只做静态引用检查：<code>bukesh</code> 派生表被绩效「补课时」字段引用了（<code>bukesh.费用</code>），所以校验通过。校验不检查「某个派生结果该不该落盘成文件」，也不检查模板单元格类型。</td></tr>
+<tr><td>Dry-run 预览</td><td>dry-run 输出列表本来就只有 <code>jx</code> 一项——如果之前点过预览，日志里其实已经能看到「只有 1 个输出」，只是界面没把它当异常提示。</td></tr>
+<tr><td>模板读取/定位</td><td>calamine 把 <code>t="s"</code> 的空单元格读成空值，定位、规划一切正常，读不出「类型危险」。</td></tr>
+</table>
+</div>
+<h2 id="s6">6. 代码定位</h2>
+<div class="card">
+<table>
+<tr><th>文件</th><th>位置</th><th>说明</th></tr>
+<tr><td class="file">schemes/高中月绩效复刻.json</td><td>outputs（L203-246）</td><td>只有 jx（patch_template），缺补课时 new_file 输出 —— 问题①直接原因</td></tr>
+<tr><td class="file">schemes/高中月绩效.scheme.json</td><td>outputs[1] = bks</td><td>旧样例方案含补课时 new_file 输出，可作改法参照</td></tr>
+<tr><td class="file">engine/src/runner.rs</td><td>L187-198（遍历 outputs）；L308-335（单测手动追加补课时输出）</td><td>运行器只做方案声明的事；单测注释暴露方案缺项</td></tr>
+<tr><td class="file">engine/src/exec.rs</td><td>L712-716 plan_template_patch</td><td>只产出 Some(数值文本) / None(清空)，不带类型信息</td></tr>
+<tr><td class="file">engine/src/xmlpatch.rs</td><td>L18-92 patch_one</td><td>写 v 时保留原开标签（含 t="s"）—— 问题②直接原因</td></tr>
+<tr><td class="file">engine/src/template.rs</td><td>L122-160 patch_workbook</td><td>zip 层最小 patch，仅调 xmlpatch，不感知类型</td></tr>
+<tr><td class="file">godot/scenes/run/run_console.tscn</td><td>「实际运行（写回+.bak）」按钮</td><td>运行台写回入口</td></tr>
+<tr><td class="file">godot/rust/src/bridge.rs</td><td>L43-75 run_scheme_json</td><td>GUI 运行入口，dry_run=false 即本场景</td></tr>
+</table>
+</div>
+
+<h2 id="s7">7. 对现有数据的损害与恢复</h2>
+<div class="card">
+<div class="box err"><b>重要：绩效.xlsx.bak 不能帮你恢复数值。</b>该 .bak 是引擎在写回前一刻自动备份的「已被你清空的模板」，里面本来就没有数。真正含正确数值的旧文件是 Git 里的版本。</div>
+<table>
+<tr><th>文件</th><th>现状</th><th>恢复建议</th></tr>
+<tr><td class="file">testdata/2023-09/绩效.xlsx</td><td>被写坏（字符串乱码）</td><td>如 2023-09 只是示例数据：git checkout 恢复该文件，恢复版本与 golden 一致、数值正确。若已按真实月数据重算，请以 .bak 为「清理底稿」、修好引擎后再跑一次。</td></tr>
+<tr><td class="file">testdata/2023-09/补课时.xlsx</td><td>已被删除</td><td>可 git restore 找回旧产物；修好方案输出后再重新生成。</td></tr>
+<tr><td class="file">testdata/2023-09/绩效.xlsx.bak</td><td>清空后模板（引擎自动备份）</td><td>可作为干净模板底稿供修复后重跑；勿当数据备份。</td></tr>
+</table>
+<p class="small">如果这目录是要交给学校的真实月数据，请优先用你自己那边的原表恢复，别依赖本仓库。</p>
+</div>
+
+<h2 id="s8">8. 修复建议（待你拍板）</h2>
+
+<h3>建议 A｜方案补上新文件输出（治 ①）——低风险</h3>
+<div class="card">
+<p>在 <code>schemes/高中月绩效复刻.json</code> 的 outputs 数组追加（等价内容也可在 GUI 输出页添加）：</p>
+<pre><code>{
+  "id": "bks",
+  "kind": {
+    "new_file": {
+      "file": "补课时.xlsx",
+      "from": "bukesh",
+      "sheet": "替上课补课时",
+      "columns": [
+        { "header": "姓名", "field": "姓名" },
+        { "header": "节数", "field": "节数" },
+        { "header": "费用", "field": "费用" }
+      ]
+    }
+  }
+}</code></pre>
+<ul>
+<li>同步修改 runner.rs、exec.rs 里「手动追加该输出」的单测，改为断言方案自带 2 个输出，并继续与 2023-09-golden/bukeshi/补课时.xlsx 逐人对拍。</li>
+<li>写回后目录里会多出补课时.xlsx；是否兼容旧程序两 sheet 形态（Sheet1 + 替上课补课时），见第 9 节遗留风险。</li>
+</ul>
+</div>
+
+<h3>建议 B｜写回层管理单元格类型（治 ②）——核心修复</h3>
+<div class="card">
+<ol>
+<li>让 SheetEdit / 规划结果携带值类型（数值/空），或让 patch_one 增加「按数值写」分支：写入时把开标签里的 t="s"（及其它类型属性）剥掉，产出不带 t 的数值单元格；值为空时移除 v（建议一并剥 t，避免留下字符串型空单元格给下一次运行埋雷）。</li>
+<li>补回归单测（重要）：造一个「数据列全是 t="s" 空单元格」的模板（等价于腾讯 Office 清空后的形态）→ 跑写回 → calamine 回读断言目标格为 Data::Int / Data::Float；再补「清空后单元格不再是字符串型」的断言。</li>
+<li>可选加固：plan_template_patch 打开模板后扫描目标列，若发现目标单元格为 t="s" 形态，给出 warning（「模板目标单元格为文本型空串，将按数值重写类型」）。</li>
+</ol>
+</div>
+
+<h3>建议 C｜运行入口/UI 防呆（可选增强）</h3>
+<div class="card">
+<ul>
+<li>实际写回前，日志/对话框明确列出「本方案将产出 N 个文件：绩效.xlsx（回写）、补课时.xlsx（新建）」之类清单；Dry-run 与实跑共用同一清单展示。</li>
+<li>写回前对模板做「目标单元格类型」体检，类型可疑时提示或中断（配合建议 B 的 warning）。</li>
+</ul>
+</div>
+
+<h2 id="s9">9. 遗留风险提示（顺带发现，不在本次故障内）</h2>
+<div class="card">
+<ol>
+<li><b>补课时新文件的形态差异</b>：旧程序（Go kpi）产出的补课时.xlsx 是 Sheet1 + 替上课补课时 两个 sheet；引擎 writer.rs（rust_xlsxwriter）只会按方案建一个替上课补课时 sheet。若学校流程依赖「第一个 sheet 是 Sheet1」，需要在方案层约定或接受差异。golden 对拍按「姓名→节数/费用」集合比对，掩盖了这一版式差异。</li>
+<li><b>空单元格插入无样式</b>（M0-0.8 遗留）：xmlpatch.rs 的 insert_new_cell 新建 c 不带同列 s 样式，人员/列缺失时会出现无边框无格式的格子。</li>
+<li><b>公式缓存</b>：若模板目标格含公式（f 元素），只改 v 不改公式，Excel 打开重算可能覆盖写回值。当前示例模板数据区无公式所以未触发；写回层对 f 的处理值得明确策略（删 f 或拒绝）。</li>
+<li><b>本次工作区还有两处无关改动</b>（godot/main.tscn、ui/nav.rs 帮助弹窗配色），与本次故障无关，可正常保留。</li>
+</ol>
+</div>
+
+<div class="box info"><b>待你评审的决策点</b>：
+① 补课时 new_file 输出是否直接补进 高中月绩效复刻.json（建议 A）？
+② 写回类型修复按建议 B 的「剥 t 属性 + 回归单测」做，还是希望遇到字符串型单元格直接报错？
+③ 是否把「模板目标列字符串型单元格」升级为写前校验错误（而不是仅 warning）？
+④ 补课时.xlsx 是否要与旧程序一致保留双 sheet 版式？</div>
+
+<div class="foot">
+证据文件均位于 D:\development\github.com\walker-sheng\excel-kpi-tool（含 testdata/2023-09 下 绩效.xlsx / 绩效.xlsx.bak、2023-09-golden）；复现用的临时目录在系统 TEMP 下（repro_a / repro_b），可随时删除。
+</div>
+
+</main>
+</body>
+</html>

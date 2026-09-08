@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>诊断报告：补课时/绩效输出值不对（复刻方案被改）</title>
+<style>
+  :root{
+    --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb;
+    --accent:#0f766e; --accent-bg:#f0fdfa;
+    --warn:#b45309; --warn-bg:#fffbeb;
+    --err:#b91c1c; --err-bg:#fef2f2;
+    --code:#166534; --code-bg:#f6f8f7;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;color:var(--ink);margin:0;background:#fafafa;line-height:1.65}
+  main{max-width:1080px;margin:0 auto;padding:32px 28px 80px}
+  h1{font-size:25px;border-bottom:3px solid var(--accent);padding-bottom:10px}
+  h2{font-size:20px;margin-top:40px;padding-left:10px;border-left:5px solid var(--accent)}
+  h3{font-size:16px;margin-top:24px;color:#115e59}
+  .meta{color:var(--sub);font-size:13px;margin-top:6px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:14px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .tag{display:inline-block;padding:1px 10px;border-radius:99px;font-size:12px;margin-right:6px;white-space:nowrap}
+  .tag.err{background:var(--err-bg);color:var(--err);border:1px solid #fecaca}
+  .tag.warn{background:var(--warn-bg);color:var(--warn);border:1px solid #fde68a}
+  .tag.ok{background:var(--accent-bg);color:var(--accent);border:1px solid #99f6e4}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px;background:#fff}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#f3f4f6;white-space:nowrap}
+  code{font-family:Consolas,"Courier New",monospace;font-size:12.5px;background:var(--code-bg);color:var(--code);padding:1px 5px;border-radius:4px}
+  pre{background:#0f172a;color:#e2e8f0;padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+  .box{border-radius:8px;padding:12px 16px;margin:12px 0}
+  .box.info{background:var(--accent-bg);border:1px solid #99f6e4}
+  .box.warn{background:var(--warn-bg);border:1px solid #fde68a}
+  .box.err{background:var(--err-bg);border:1px solid #fecaca}
+  .small{font-size:12.5px;color:var(--sub)}
+  ul,ol{padding-left:24px}
+  .file{font-weight:600}
+  .num{color:#0f766e;font-weight:700}
+  .foot{margin-top:50px;border-top:1px solid var(--line);padding-top:10px;color:var(--sub);font-size:12.5px}
+</style>
+</head>
+<body>
+<main>
+<h1>诊断报告：补课时输出 / 绩效回写数值不对</h1>
+<div class="meta">日期：2026-09-08　·　问题对象：Godot 用户方案副本（user://schemes/高中月绩效复刻.json）在 2023-09 数据上的运行结果</div>
+
+<div class="card">
+<b>一句话结论：</b>引擎与上次修复均无问题（本次输出已全部是正常数值、不再是乱码）。问题出在<b>你运行的这份方案副本被改过</b>，与仓库里对拍 golden 的「高中月绩效复刻」已不一致，改动造成了 4 类数值偏差；补课时第一个姓名空白则暴露了一个<b>引擎空单元格比较语义</b>与方案写法的既有隐患。
+<ul>
+<li><b>① 补课时/绩效“补课时”列错</b>：派生 bukesh 被改成按「请假天数」求和、费率用「课时费 1.5」而不是旧口径「替课节数 × 补课时费 7」；参数「补课时费」被删。</li>
+<li><b>② 补课时第一行姓名空白</b>：没有替课的请假行没被过滤掉，被聚合到「姓名=空」的一行里（7 天 / 10.5 元）。</li>
+<li><b>③ 绩效“请假”列普遍偏低/消失</b>：请假扣款金额聚合里引用了排在它后面的两个聚合（请事假/请病假天数），引擎按声明顺序计算且只能引用前序聚合 → 全员扣款金额=0。</li>
+<li><b>④ 大量小数点后微小差异</b>：课时源列丢了 bits:32，未复刻旧程序 ParseFloat(s,32) 的四舍五入。</li>
+</ul>
+<p class="small">对照基线 = 旧程序 golden（2023-09-golden/）。用户方案副本位于 <code>C:\Users\walker\AppData\Roaming\Godot\app_userdata\kpi_tool\schemes\高中月绩效复刻.json</code>；仓库 <code>schemes/高中月绩效复刻.json</code> 未改动、仍是正确基线。</p>
+</div>
+
+<h2 id="s1">1. 现象与影响面</h2>
+<div class="card">
+<table>
+<tr><th>输出</th><th>现象</th><th>量化（与 golden 逐格对拍）</th></tr>
+<tr><td>补课时.xlsx</td><td>列头 姓名/天数/课时费；<b>第一行姓名空白</b>且带 7 天/10.5 元；其余行是各替课老师被记成“请假天数×1.5”</td><td>共 16 行 = golden 15 人 + 1 行空姓名；口径完全不符（应 姓名/节数/费用 = 节数×7）</td></tr>
+<tr><td>绩效.xlsx</td><td>“补课时”列错、“请假”列缺负数、“扣课时”多扣，及大量课时精度尾差</td><td>非校聘 360 格、校聘 141 格，共约 501 格与 golden 不同</td></tr>
+</table>
+<p>典型差异样本（当前产出 vs golden）：</p>
+<table>
+<tr><th>人</th><th>列</th><th>当前</th><th>golden(旧程序)</th><th>归类</th></tr>
+<tr><td>向浩波</td><td>补课时(绩效 M)</td><td>15</td><td>168</td><td>24节×7 被算成 10天×1.5</td></tr>
+<tr><td>李少波</td><td>补课时</td><td>0</td><td>14</td><td>2节×7 被算成 0天×1.5</td></tr>
+<tr><td>王艳</td><td>补课时</td><td>3</td><td>14</td><td>同上（天数挂在请假人首行）</td></tr>
+<tr><td>薛国庆</td><td>扣课时 / 请假</td><td>-5.2 / 空</td><td>空 / -20</td><td>无替课病假被计入扣课；事假扣款丢失</td></tr>
+<tr><td>李纯福</td><td>课时S/费S/合计…</td><td>11.4 / 17.1 …</td><td>11.39999961… / 17.09999942…</td><td>bits:32 精度复刻缺失</td></tr>
+</table>
+</div>
+
+<h2 id="s2">2. 复现方法（与你在 Godot 看到的一致）</h2>
+<div class="card">
+<pre><code># 用你 user 目录里的方案副本 + 干净输入跑引擎 CLI
+cargo run -p kpi-engine --example run_scheme -- \
+    "$APPDATA/Godot/app_userdata/kpi_tool/schemes/高中月绩效复刻.json" &lt;干净月份目录&gt;
+# → [out] jx [patch_template] 计划写 2423 个单元格
+# → [out] 补课时 [new_file] 16 行数据
+# → 绩效 501 格、补课时整表与 golden 不符（与你在 Godot 看到的一致）</code></pre>
+<p class="small">仓库 <code>schemes/高中月绩效复刻.json</code> 跑同样输入 → 绩效 0 格差异、补课时（按测试里补的 new_file 口径）15 行与 golden 逐人一致。即仓库基线没问题。</p>
+</div>
+<h2 id="s3">3. 根因逐条分析</h2>
+
+<h3>3.1 派生 bukesh 口径被改写 → 补课时.xlsx 与绩效「补课时」列全错</h3>
+<div class="card">
+<p>方案副本里 <code>derived.bukesh</code>（以及新文件输出、绩效字段）被改成：</p>
+<pre><code># 仓库基线（=旧程序 golden）：
+bukesh 列：姓名=GROUP_BY(替上课老师)  节数=SUM(节数)  费用=节数 × 参数.补课时费(7)
+绩效「补课时」字段 = bukesh.费用
+补课时.xlsx 输出列 = 姓名 / 节数 / 费用
+
+# 你的方案副本（当前）：
+bukesh 列：姓名=group_by(替上课老师)  天数=sum(天数)  课时费=天数 × 参数.课时费(1.5)
+绩效「补课时」字段 = bukesh.课时费
+补课时.xlsx 输出列 = 姓名 / 天数 / 课时费（sheet 名也改成 替上课课时）</code></pre>
+<ul>
+<li>把「替课老师实际代了几节课（节数）」错算成了「请假人请了几天假（天数）」，且费率用错参数（1.5 vs 7，参数「补课时费」也被删除）。</li>
+<li>例：向浩波替吕红冰 24 节 → 应 24×7=168；你的方案算成吕红冰的请假 10 天×1.5=15。</li>
+<li>例：李少波替袁萍 2 节 → 应 14；因“天数”只写在请假记录首行（王艳那行），李少波行的天数空白 → SUM=0。</li>
+<li>若本意确要输出旧格式（学校历来用 节数×补课时费），应把 bukesh、字段与 new_file 列全部改回基线；如另有新口径请先定口径再改。</li>
+</ul>
+</div>
+
+<h3>3.2 补课时第一行姓名空白：空单元格没被 where 过滤掉</h3>
+<div class="card">
+<p>bukesh 的过滤条件写成 <code>请假表.替上课老师 != ''</code>。引擎里“空单元格”是 <code>Empty</code>，而 <code>Empty != ''</code> 为真（空值 ≠ 空字符串），所以<b>没安排替课的请假行</b>（该格是空白）全部漏了进来，被 <code>GROUP_BY(替上课老师)</code> 聚成“姓名=空”的一行：7 天 / 10.5 元。</p>
+<p>引擎的正确写法要先把空值并成空串：</p>
+<pre><code>(请假表.替上课老师 ?? '') != ''   // 或单问号：请假表.替上课老师 ? ''</code></pre>
+<div class="box warn"><b>既有隐患说明：</b>仓库基线里 bukesh 的 where 同样没加 <code>?? ''</code>——以前 bukesh 只被绩效字段“按姓名查值”使用，这行空名数据永远不会被查到，所以测试全绿。一旦像你现在这样把 bukesh 落成新文件，空名首行就会暴露出来。<b>补课时输出要落地，无论用哪套口径都建议先补 <code>?? ''</code>。</b></div>
+</div>
+
+<h3>3.3 绩效「请假」列普遍消失：聚合声明顺序被 GUI 打乱</h3>
+<div class="card">
+<p>你的副本里聚合定义顺序为：<code>请假超总天数 → 请假超额 → 请假扣款金额 → 扣课天数 → 请事假天数 → 请病假天数</code>。</p>
+<p>引擎 <code>compute_aggregates</code> 按声明顺序逐条计算，<code>聚合.xxx</code> 只能引用<b>已经算好的前序聚合</b>。因此「请假扣款金额」计算时，排在它后面的「请事假天数/请病假天数」还不存在 → 引用落空 → 结果全是 0：</p>
+<pre><code>实测（引擎内部，方案副本）：
+  请假扣款金额 / 薛国庆 = 0.0     （其请事假天数=1，1×20 应=20）
+  请假扣款金额 / 阎秦安 = 0.0     （其请病假天数=2，2×10 应=20）
+  → 绩效「请假」列对所有人都是空；仓库基线里 请事假/请病假 定义在 请假扣款金额 之前</code></pre>
+<ul>
+<li>仓库基线顺序：<code>请假超总天数 → 请假事假 → 请假病假 → 请假扣款金额 → 请假超额 → 扣课天数</code>。</li>
+<li>这条同时是「引擎健壮性」问题：对声明顺序这么敏感、且前向引用会静默得 0 而不是报错，值得后续给引擎加“聚合依赖拓扑排序”或校验告警（见第 5 节建议）。</li>
+</ul>
+</div>
+
+<h3>3.4 扣课天数与「空值比较」叠加错位</h3>
+<div class="card">
+<p>副本里「扣课天数」聚合被改为直接对<b>请假表物理行</b>求和（where 也无 <code>?? ''</code>），而不是仓库基线用的 qingjia_jl「记录视图 + <code>(替上课老师 ?? '') != ''</code>」。</p>
+<ul>
+<li>没安排替课的病/事假也被计入扣课天数（空值漏过滤）；仓库基线靠记录视图 + <code>?? ''</code> 排除。</li>
+<li>例：薛国庆（事假 1 天、无替课）→ 副本算得扣课天数=1 → 绩效“扣课时”被写成 -5.2，golden 应为空。</li>
+<li>同时副本方案里保留了一份 qingjia_jl 数据源，但<b>没有任何聚合/派生引用它</b>（成为死配置），进一步说明这份方案是手工改乱的半成品。</li>
+</ul>
+</div>
+
+<h3>3.5 课时源列丢 bits:32 → 大量尾差</h3>
+<div class="card">
+<p>旧程序用 <code>ParseFloat(s,32)</code> 读“总计(课时)”列，仓库基线在 <code>keshi.课时</code> 上标了 <code>bits:32</code> 复刻该行为。你的副本里该列的 bits 被删了 → 有课时的老师整条链（课时S→课时费→课时周费/月费→合计→上浮/实发）都出现第 6~7 位小数差异：</p>
+<pre><code>李纯福：11.4        vs golden 11.399999618530273
+解凌云：33.6        vs golden 33.599998474121094
+校聘 141 处差异里绝大多数属于这一类</code></pre>
+<p class="small">这类差异肉眼几乎看不出来，但对拍（数值精确相等）会失败；若交付只以对拍为准则，需要补回 bits:32。</p>
+</div>
+<h2 id="s4">4. 代码/配置定位</h2>
+<div class="card">
+<table>
+<tr><th>位置（方案副本 user://schemes/高中月绩效复刻.json）</th><th>问题</th></tr>
+<tr><td class="file">derived.bukesh（columns）</td><td>SUM 天数、用 课时费 1.5，与旧口径 节数×补课时费 不符；where 缺 <code>?? ''</code></td></tr>
+<tr><td class="file">outputs「补课时」(new_file)</td><td>输出列 姓名/天数/课时费、sheet 替上课课时 → 按新（错）口径落文件，空名首行落盘</td></tr>
+<tr><td class="file">aggregates 顺序</td><td>请假扣款金额 排在 请事假/请病假天数 之前 → 前向引用静默为 0</td></tr>
+<tr><td class="file">aggregates.扣课天数</td><td>对物理行请假表聚合、where 无 <code>?? ''</code>；仓库基线用 qingjia_jl 记录视图</td></tr>
+<tr><td class="file">sources.keshi → columns.课时</td><td>丢了 <code>"bits": 32</code>（仓库基线保留）</td></tr>
+<tr><td class="file">sources.qingjia_jl</td><td>保留为数据源但无人引用（死配置，语义应是“记录视图”供扣课使用）</td></tr>
+</table>
+<p>仓库内正确参照：<code>schemes/高中月绩效复刻.json</code>（聚合顺序、bits:32、bukesh=节数×补课时费、扣课用 qingjia_jl + <code>?? ''</code> 均在此）。</p>
+</div>
+
+<h2 id="s5">5. 修复建议（待你拍板）</h2>
+<div class="card">
+<h3>建议 A（必做）｜把方案副本对齐回“对拍基线”口径</h3>
+<ol>
+<li>bukesh：列改回 <code>姓名=GROUP_BY(请假表.替上课老师)、节数=SUM(请假表.节数)、费用=节数×参数.补课时费</code>；重新加回参数「补课时费=7」。</li>
+<li>bukesh 与「扣课天数」的 where 都写成 <code>(…替上课老师 ?? '') != ''</code>（空值先并空串）。</li>
+<li>new_file「补课时」输出列改回 姓名/节数/费用，sheet 名按需取 <code>替上课补课时</code>（golden 命名）。</li>
+<li>恢复聚合声明顺序：请事假天数、请病假天数 在 请假扣款金额 之前。</li>
+<li>keshi.课时 恢复 <code>bits:32</code>（如需与旧程序逐格一致）。</li>
+<li>扣课天数改回引用 qingjia_jl 记录视图；不用的 qingjia_jl 源若保留请说明用途。</li>
+</ol>
+<h3>建议 B（引擎加固，可选）</h3>
+<ol>
+<li><code>compute_aggregates</code> 增加拓扑排序：聚合引用 <code>聚合.x</code> 时若 x 尚未计算，自动重排或报“循环/前向引用”错误，杜绝“静默 0”。</li>
+<li>validate 对聚合“引用未定义/前序未定义”给 error（现在这种引用跑起来静默错最危险）。</li>
+<li>对“空单元格 ≠ 空串”的 where 比较给出警示或在文档标注（方案侧统一 <code>?? ''</code> 即可）。</li>
+</ol>
+<p class="small">说明：本次数值类型乱码问题（上一轮）在你这次输出里已不存在——单元格都是正常数值；本轮完全是方案口径 + 顺序问题。需要我按建议 A 直接帮你改用户方案副本 / 仓库方案并补回归测试，等你确认。</p>
+</div>
+
+<div class="foot">
+证据：用户方案副本 diff 仓库方案、引擎对拍（绩效 501 格 / 补课时 16 行 vs golden）、聚合实测（请假扣款金额全员 0 等）。样例数据 2023-09 及 golden 均在本仓库 testdata/ 下。
+</div>
+
+</main>
+</body>
+</html>

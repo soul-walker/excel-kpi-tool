@@ -351,4 +351,122 @@ mod tests {
         assert!(summary.outcomes[1].wrote && out_file.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// 取单元格引用的列字母（如 "AB12" → "AB"）。
+    fn col_letters(cell_ref: &str) -> &str {
+        let end = cell_ref
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(cell_ref.len());
+        &cell_ref[..end]
+    }
+
+    /// 把单个工作表里“未带类型属性的数值格”改写为 <c ... t="s"/>（无值），
+    /// 等价于 WPS/腾讯 Office 等表格软件清空数值区后保存的形态。
+    /// 表头/姓名/序号(A 列)等保留原样。
+    fn blank_numeric_cells_to_text(xml: &str) -> String {
+        let mut out = String::with_capacity(xml.len());
+        let mut pos = 0;
+        while pos < xml.len() {
+            let Some(rel) = xml[pos..].find("<c ") else {
+                out.push_str(&xml[pos..]);
+                break;
+            };
+            let start = pos + rel;
+            out.push_str(&xml[pos..start]);
+            let Some(rel_end) = xml[start..].find('>') else {
+                out.push_str(&xml[start..]);
+                break;
+            };
+            let tag_end = start + rel_end;
+            let tag = &xml[start..tag_end];
+            let is_self = tag.ends_with('/');
+            let base = if is_self { &tag[..tag.len() - 1] } else { tag };
+            if is_self {
+                out.push_str(tag);
+                out.push('>');
+                pos = tag_end + 1;
+                continue;
+            }
+            let body_start = tag_end + 1;
+            let Some(rel_close) = xml[body_start..].find("</c>") else {
+                out.push_str(&xml[start..]);
+                break;
+            };
+            let body_end = body_start + rel_close;
+            let body = &xml[body_start..body_end];
+            let cell_ref = tag
+                .find("r=\"")
+                .and_then(|p| {
+                    let tail = &tag[p + 3..];
+                    tail.find('"').map(|e| &tail[..e])
+                })
+                .unwrap_or("");
+            let is_numeric_data =
+                col_letters(cell_ref) != "A" && !base.contains(" t=") && body.contains("<v>");
+            if is_numeric_data {
+                out.push_str(base);
+                out.push_str(" t=\"s\"/>");
+            } else {
+                out.push_str(tag);
+                out.push('>');
+                out.push_str(body);
+                out.push_str("</c>");
+            }
+            pos = body_end + "</c>".len();
+        }
+        out
+    }
+
+    /// 把 xlsx 里所有工作表的数值格改写成文本型空单元格（模拟“清空后保存”）。
+    fn blank_numeric_cells_as_text(path: &Path) {
+        use std::fs::File;
+        use std::io::{Read, Write};
+
+        let file = File::open(path).expect("打开模板");
+        let mut archive = zip::ZipArchive::new(file).expect("模板不是合法 zip");
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::with_capacity(archive.len());
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).expect("读 zip 条目");
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).expect("读条目内容");
+            entries.push((entry.name().to_string(), buf));
+        }
+        for (name, buf) in &mut entries {
+            if name.starts_with("xl/worksheets/") && name.ends_with(".xml") {
+                let src = String::from_utf8_lossy(buf);
+                *buf = blank_numeric_cells_to_text(&src).into_bytes();
+            }
+        }
+        let out = File::create(path).expect("写模板");
+        let mut zw = zip::ZipWriter::new(out);
+        for (name, bytes) in &entries {
+            zw.start_file(name, zip::write::SimpleFileOptions::default())
+                .expect("写入 zip 条目");
+            zw.write_all(bytes).expect("写条目内容");
+        }
+        zw.finish().expect("收尾 zip");
+    }
+
+    /// 回归（对应真实故障）：绩效模板数值区被表格软件“清空成 t="s" 空单元格”后，
+    /// 引擎写回仍应把目标格写成数值，整表与 golden 逐格一致。
+    #[test]
+    fn writeback_into_text_cleared_template_matches_golden() {
+        let dir = temp_dir("text-clear");
+        copy_inputs(&dir);
+        let scheme = load_scheme().scheme;
+
+        // 把数值格改成 t="s" 空单元格（模拟清空后保存），再实跑。
+        blank_numeric_cells_as_text(&dir.join("绩效.xlsx"));
+        let summary =
+            run_scheme_outputs(&scheme, &dir, RunOptions { dry_run: false }).expect("运行方案失败");
+        assert!(summary.outcomes.iter().any(|o| o.wrote), "应实际写回");
+
+        let golden = data_dir().with_file_name("2023-09-golden/kpi/绩效.xlsx");
+        assert_eq!(
+            count_grid_diffs(&dir.join("绩效.xlsx"), &golden),
+            0,
+            "文本型空模板写回后应等于 golden（数值正常、无乱码）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

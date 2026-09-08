@@ -600,6 +600,66 @@ impl Scheme {
             );
         }
 
+        // —— 聚合指标之间的引用：`聚合.x` 必须指向已声明指标，且不得成环 ——
+        // （前向引用合法：执行器会按依赖拓扑排序计算，见 exec::aggregate_compute_order）
+        let agg_ids: Vec<&str> = self.aggregates.iter().map(|a| a.id.as_str()).collect();
+        let mut agg_dep: Vec<Vec<usize>> = vec![Vec::new(); self.aggregates.len()];
+        for (i, a) in self.aggregates.iter().enumerate() {
+            for text in [Some(a.expr.as_str()), a.where_.as_deref()] {
+                let Some(text) = text else { continue };
+                let Ok(node) = calc::parse(text) else {
+                    continue; // 解析失败已由上方 validate_agg_expr 报告
+                };
+                let mut paths = Vec::new();
+                collect_paths(&node, &mut paths);
+                for p in paths {
+                    if p.len() < 2 || p[0] != "聚合" {
+                        continue;
+                    }
+                    match agg_ids.iter().position(|id| *id == p[1].as_str()) {
+                        Some(j) => {
+                            if !agg_dep[i].contains(&j) {
+                                agg_dep[i].push(j);
+                            }
+                        }
+                        None => out.push(Issue::error(
+                            format!("aggregates.{}", a.id),
+                            format!("引用了不存在的聚合指标: 聚合.{}", p[1]),
+                        )),
+                    }
+                }
+            }
+        }
+        // 环检测：重复剥除“依赖已全部就绪”的节点，剥不动即为环。
+        let mut done = vec![false; self.aggregates.len()];
+        loop {
+            let mut progressed = false;
+            for i in 0..self.aggregates.len() {
+                if !done[i] && agg_dep[i].iter().all(|&j| done[j]) {
+                    done[i] = true;
+                    progressed = true;
+                }
+            }
+            if !progressed {
+                break;
+            }
+        }
+        let stuck: Vec<&str> = agg_ids
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !done[*i])
+            .map(|(_, id)| *id)
+            .collect();
+        if !stuck.is_empty() {
+            out.push(Issue::error(
+                "aggregates".to_string(),
+                format!(
+                    "聚合指标存在循环引用（无法确定计算顺序）: {}",
+                    stuck.join(" → ")
+                ),
+            ));
+        }
+
         // —— 分组字段/覆盖 ——
         for g in &self.groups {
             for f in &g.fields {
@@ -765,7 +825,8 @@ fn collect_paths(node: &Node, out: &mut Vec<Vec<String>>) {
     }
 }
 
-/// 聚合的 where / expr 引用前缀校验：允许 `{from}.列`（行内）、`聚合.x`（前序聚合）、`参数.x`。
+/// 聚合的 where / expr 引用前缀校验：允许 `{from}.列`（行内）、`聚合.x`（已声明的其它指标；
+/// 执行时按依赖自动拓扑排序，不要求“前序”）、`参数.x`。
 fn validate_agg_expr(out: &mut Vec<Issue>, a: &AggregateSpec, loc: &str, expr: &Option<String>) {
     let Some(text) = expr.as_deref() else { return };
     let node = match calc::parse(text) {
@@ -928,6 +989,84 @@ mod tests {
                 .iter()
                 .any(|i| { i.severity == Severity::Error && i.message.contains("已移除") }),
             "校验应报旧 IF 函数写法已被移除: {issues:?}"
+        );
+    }
+
+    /// 聚合指标之间的引用校验：前向引用合法、未定义引用报错、循环引用报错。
+    #[test]
+    fn aggregate_cross_references_validated() {
+        let source = r#"
+            "sources": [
+                {
+                    "id": "qingjia",
+                    "file": "请假替上课.xlsx",
+                    "sheet": "请假替上课",
+                    "columns": [
+                        { "header": "姓名", "alias": "姓名", "value_type": "text", "key": true },
+                        { "header": "天数", "alias": "天数", "value_type": "decimal" }
+                    ]
+                }
+            ]"#;
+        let scheme_json = |aggregates: &str| {
+            format!(
+                r#"{{
+                "schema_version": 1,
+                "scheme": {{
+                    "name": "聚合引用校验",
+                    "entity": {{ "key_field": "姓名", "duplicate": "report" }},
+                    {source},
+                    "aggregates": {aggregates}
+                }}
+            }}"#
+            )
+        };
+
+        // 前向引用合法（执行器按依赖自动排序），不应新增 error。
+        let fwd = scheme_json(
+            r#"[
+                { "id": "甲", "from": "qingjia", "group_by": "姓名", "expr": "聚合.乙 + 1" },
+                { "id": "乙", "from": "qingjia", "group_by": "姓名", "expr": "SUM(qingjia.天数)" }
+            ]"#,
+        );
+        let v = VersionedScheme::from_json_str(&fwd).expect("fwd 应可解析");
+        let issues = v.scheme.validate();
+        assert!(
+            !issues.iter().any(|i| {
+                i.severity == Severity::Error
+                    && (i.message.contains("循环引用") || i.message.contains("不存在的聚合指标"))
+            }),
+            "前向引用不应报错: {issues:?}"
+        );
+
+        // 未定义引用 → 报错。
+        let undef = scheme_json(
+            r#"[
+                { "id": "甲", "from": "qingjia", "group_by": "姓名", "expr": "聚合.不存在 + 1" }
+            ]"#,
+        );
+        let v = VersionedScheme::from_json_str(&undef).expect("undef 应可解析");
+        let issues = v.scheme.validate();
+        assert!(
+            issues.iter().any(|i| {
+                i.severity == Severity::Error && i.message.contains("不存在的聚合指标")
+            }),
+            "未定义引用应报错: {issues:?}"
+        );
+
+        // 循环引用 → 报错。
+        let cycle = scheme_json(
+            r#"[
+                { "id": "甲", "from": "qingjia", "group_by": "姓名", "expr": "聚合.乙 + 1" },
+                { "id": "乙", "from": "qingjia", "group_by": "姓名", "expr": "聚合.甲 + 1" }
+            ]"#,
+        );
+        let v = VersionedScheme::from_json_str(&cycle).expect("cycle 应可解析");
+        let issues = v.scheme.validate();
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.severity == Severity::Error && i.message.contains("循环引用")),
+            "循环引用应报错: {issues:?}"
         );
     }
 }

@@ -408,7 +408,8 @@ pub fn param_lookup(scheme: &Scheme) -> HashMap<String, Value> {
 /// 每个聚合 = SQL 式：`FROM {from} WHERE {where_} GROUP BY {group_by} SELECT {expr}`：
 /// - `where_`（可选）先裁行；
 /// - 按 `group_by` 列分组；
-/// - 对每组行求 `expr`（行内列用 `{from}.列` 书写，先归并为裸列；`聚合.x` 引用前序聚合）。
+/// - 对每组行求 `expr`（行内列用 `{from}.列` 书写，先归并为裸列；`聚合.x` 引用其它指标，
+///   计算顺序按依赖自动拓扑排序，声明顺序不影响正确性）。
 pub fn compute_aggregates(
     scheme: &Scheme,
     run: &SchemeRun,
@@ -416,7 +417,9 @@ pub fn compute_aggregates(
     let params = param_lookup(scheme);
     let mut out: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
 
-    for agg in &scheme.aggregates {
+    // 按依赖拓扑序计算（expr/where 里的 `聚合.x` 必须先算），
+    // 避免“声明在前、引用在后”的指标静默得 0；成环/未定义在此直接报错。
+    for agg in aggregate_compute_order(scheme)? {
         let rows = rows_for(&agg.from, &run.source_tables, &run.derived_tables)?;
 
         // WHERE：引用带 {from}. 前缀，先归并后逐行求值过滤。
@@ -474,7 +477,116 @@ pub fn compute_aggregates(
     Ok(out)
 }
 
-/// 解析聚合/参数命名空间引用：`聚合.x` → 前序聚合(按人)，`参数.x` → 参数。
+/// 聚合指标依赖的确定性计算顺序。
+/// - 依赖 = 聚合 expr / where 里出现的 `聚合.x` 引用；
+/// - 按“依赖先算”拓扑排序，声明顺序作为并列时的稳定顺序（前向引用自动解析）；
+/// - `聚合.x` 指向不存在的指标 / 存在循环 → 报错，不再“静默得 0”。
+fn aggregate_compute_order(scheme: &Scheme) -> Result<Vec<&crate::scheme::AggregateSpec>> {
+    let specs = &scheme.aggregates;
+    let index_of: HashMap<&str, usize> = specs
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (a.id.as_str(), i))
+        .collect();
+
+    let mut deps: Vec<Vec<usize>> = Vec::with_capacity(specs.len());
+    for a in specs.iter() {
+        let mut list: Vec<usize> = Vec::new();
+        for m in aggregate_metric_refs(a)? {
+            match index_of.get(m.as_str()) {
+                Some(&j) => {
+                    if !list.contains(&j) {
+                        list.push(j);
+                    }
+                }
+                None => {
+                    return Err(Error::Runtime(format!(
+                        "聚合 {} 引用了不存在的聚合指标: 聚合.{m}",
+                        a.id
+                    )));
+                }
+            }
+        }
+        deps.push(list);
+    }
+
+    let mut done = vec![false; specs.len()];
+    let mut order: Vec<&crate::scheme::AggregateSpec> = Vec::with_capacity(specs.len());
+    while order.len() < specs.len() {
+        let mut progressed = false;
+        for (i, a) in specs.iter().enumerate() {
+            if done[i] {
+                continue;
+            }
+            if deps[i].iter().all(|&j| done[j]) {
+                done[i] = true;
+                order.push(a);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            let stuck: Vec<String> = specs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !done[*i])
+                .map(|(_, a)| a.id.clone())
+                .collect();
+            return Err(Error::Runtime(format!(
+                "聚合指标存在循环引用（无法确定计算顺序）: {}",
+                stuck.join(" → ")
+            )));
+        }
+    }
+    Ok(order)
+}
+
+/// 单个聚合声明（expr / where）里引用到的其它聚合指标 id。
+fn aggregate_metric_refs(spec: &crate::scheme::AggregateSpec) -> Result<Vec<String>> {
+    let mut refs: Vec<String> = Vec::new();
+    for (kind, text) in [
+        ("expr", Some(spec.expr.as_str())),
+        ("where", spec.where_.as_deref()),
+    ] {
+        let Some(text) = text else { continue };
+        let node = calc::parse(text)
+            .map_err(|e| Error::Runtime(format!("聚合 {} {kind} 解析失败: {e}", spec.id)))?;
+        collect_agg_metric_refs(&node, &mut refs);
+    }
+    Ok(refs)
+}
+
+fn collect_agg_metric_refs(node: &Node, out: &mut Vec<String>) {
+    match node {
+        Node::Num(_) | Node::Str(_) | Node::Bool(_) | Node::Empty => {}
+        Node::Path(p) => {
+            if p.len() >= 2 && p[0] == "聚合" && !out.iter().any(|x| x == &p[1]) {
+                out.push(p[1].clone());
+            }
+        }
+        Node::Not(x) => collect_agg_metric_refs(x, out),
+        Node::Coalesce { l, r } => {
+            collect_agg_metric_refs(l, out);
+            collect_agg_metric_refs(r, out);
+        }
+        Node::If { cond, then, els } => {
+            collect_agg_metric_refs(cond, out);
+            collect_agg_metric_refs(then, out);
+            collect_agg_metric_refs(els, out);
+        }
+        Node::Bin { l, r, .. } => {
+            collect_agg_metric_refs(l, out);
+            collect_agg_metric_refs(r, out);
+        }
+        Node::Call { args, .. } => {
+            for a in args {
+                collect_agg_metric_refs(a, out);
+            }
+        }
+        Node::Agg { expr, .. } => collect_agg_metric_refs(expr, out),
+    }
+}
+
+/// 解析聚合/参数命名空间引用：`聚合.x` → 已按拓扑序算好的聚合(按人)，`参数.x` → 参数。
 /// 单段路径已不支持（强制前缀）；行内列只在聚合内部由行上下文解析，不经过本解析器。
 fn resolve_plain(
     p: &[String],
@@ -1032,6 +1144,142 @@ mod tests {
         assert_eq!(fields["课时S"], Value::Num(20.0));
         assert_eq!(fields["课时费"], Value::Num(30.0));
         assert_eq!(fields["发放"], Value::Num(0.0));
+    }
+
+    /// 简单请假表：供聚合顺序测试使用。
+    fn qingjia_table(rows: Vec<[&'static str; 3]>) -> crate::table::Table {
+        use crate::table::{Column as TColumn, Row as TRow, Table as TTable};
+        TTable {
+            columns: vec![
+                TColumn {
+                    alias: "姓名".into(),
+                    header: "姓名".into(),
+                },
+                TColumn {
+                    alias: "类型".into(),
+                    header: "类型".into(),
+                },
+                TColumn {
+                    alias: "天数".into(),
+                    header: "天数".into(),
+                },
+            ],
+            rows: rows
+                .into_iter()
+                .map(|[name, kind, days]| TRow {
+                    cells: vec![
+                        CellValue::Text(name.into()),
+                        CellValue::Text(kind.into()),
+                        CellValue::Float(days.parse().unwrap()),
+                    ],
+                })
+                .collect(),
+        }
+    }
+
+    /// 前向引用：声明在前的指标引用“声明在后”的指标时，执行器应自动按拓扑序计算，
+    /// 而不是像旧实现那样把未计算的引用当作 0（本次故障根因之一）。
+    #[test]
+    fn aggregate_forward_reference_resolved_by_topo_order() {
+        use crate::scheme::{AggregateSpec, ParamValue, Parameter};
+
+        let qingjia = qingjia_table(vec![["张", "事", "2"], ["张", "公", "3"]]);
+        let run = SchemeRun {
+            source_tables: HashMap::from([("qingjia".to_string(), qingjia)]),
+            derived_tables: HashMap::new(),
+        };
+
+        let mut scheme = Scheme::default();
+        scheme.entity.key_field = "姓名".into();
+        scheme.parameters = vec![Parameter {
+            name: "事假单价".into(),
+            label: None,
+            value_type: ColumnType::Integer,
+            value: ParamValue::Float(20.0),
+        }];
+        // 故意乱序：请假扣款金额（引用请事假天数）声明在请事假天数之前。
+        scheme.aggregates = vec![
+            AggregateSpec {
+                id: "请假扣款金额".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                where_: None,
+                expr: "聚合.请事假天数 * 参数.事假单价".into(),
+            },
+            AggregateSpec {
+                id: "请事假天数".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                where_: Some("qingjia.类型 = '事'".into()),
+                expr: "SUM(qingjia.天数)".into(),
+            },
+        ];
+
+        let aggs = compute_aggregates(&scheme, &run).expect("应能拓扑排序并正确计算");
+        assert_eq!(aggs["请事假天数"]["张"], Value::Num(2.0));
+        assert_eq!(
+            aggs["请假扣款金额"]["张"],
+            Value::Num(40.0),
+            "修复前前向引用静默得 0，现在应按依赖先算请事假天数"
+        );
+    }
+
+    /// 未定义引用 / 循环引用必须在执行期直接报错，而不是静默得 0 或死循环。
+    #[test]
+    fn aggregate_undefined_or_cycle_reports_error() {
+        use crate::scheme::{AggregateSpec, ParamValue, Parameter};
+
+        let run = SchemeRun {
+            source_tables: HashMap::from([(
+                "qingjia".to_string(),
+                qingjia_table(vec![["张", "事", "1"]]),
+            )]),
+            derived_tables: HashMap::new(),
+        };
+        let base = |scheme: &mut Scheme| {
+            scheme.entity.key_field = "姓名".into();
+            scheme.parameters = vec![Parameter {
+                name: "单价".into(),
+                label: None,
+                value_type: ColumnType::Integer,
+                value: ParamValue::Float(1.0),
+            }];
+        };
+
+        // 引用不存在的指标 → 报错。
+        let mut scheme = Scheme::default();
+        base(&mut scheme);
+        scheme.aggregates = vec![AggregateSpec {
+            id: "甲".into(),
+            from: "qingjia".into(),
+            group_by: "姓名".into(),
+            where_: None,
+            expr: "聚合.不存在 + 1".into(),
+        }];
+        let err = compute_aggregates(&scheme, &run).expect_err("未定义引用应报错");
+        assert!(err.to_string().contains("不存在的聚合指标"), "{err}");
+
+        // 循环引用 甲→乙→甲 → 报错。
+        let mut scheme = Scheme::default();
+        base(&mut scheme);
+        scheme.aggregates = vec![
+            AggregateSpec {
+                id: "甲".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                where_: None,
+                expr: "聚合.乙 + 1".into(),
+            },
+            AggregateSpec {
+                id: "乙".into(),
+                from: "qingjia".into(),
+                group_by: "姓名".into(),
+                where_: None,
+                expr: "聚合.甲 + 1".into(),
+            },
+        ];
+        let err = compute_aggregates(&scheme, &run).expect_err("循环引用应报错");
+        assert!(err.to_string().contains("循环引用"), "{err}");
     }
 
     // ---- 绩效复刻整链：与 golden/kpi/绩效.xlsx 逐格对拍 ----
