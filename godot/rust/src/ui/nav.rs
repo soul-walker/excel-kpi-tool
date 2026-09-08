@@ -45,36 +45,51 @@ pub struct HelpRefs {
     pub text: Option<GodotNodeHandle>,
 }
 
-/// 顶栏「说明」弹窗内容（RichTextLabel，bbcode）。
-const EXPR_HELP_TEXT: &str = "\
-[b]表达式怎么写？——块语法速查[/b]\n\n\
+/// 说明弹窗配色：浅灰背景友好「青绿 + 墨绿」配：标题青绿 / 代码墨绿 / 警示砖红，
+/// 主色为绿色系、灰底上协调耐看；警示保持低频的暖色提醒。
+const HELP_HEADING_COLOR: &str = "#0f766e";
+const HELP_CODE_COLOR: &str = "#166534";
+const HELP_WARN_COLOR: &str = "#b91c1c";
+
+/// 顶栏「说明」弹窗内容模板（RichTextLabel，bbcode）；颜色用占位符 @H/@C/@W，
+/// 打开前经 `help_text()` 替换为上面统一的配色常量。
+const EXPR_HELP_TEMPLATE: &str = "\
+[color=@H@][b]表达式怎么写？——块语法速查[/b][/color]\n\n\
 表达式用在三个地方：派生视图的列表达式、聚合指标的 where / expr、计算分组的字段与覆盖。\n\n\
-[b]1. 引用名字[/b]\n\
-• 刚算好的字段：直接写名字，如 [code]课时费S + 课时费X[/code]\n\
-• 方案参数：加 [code]参数.[/code] 前缀，如 [code]课时S * 参数.课时费[/code]\n\
-• 聚合指标：加 [code]聚合.[/code] 前缀，如 [code]聚合.请假超额[/code]\n\
-• 表里的列：写 [code]表id.列名[/code]，如 [code]keshi.课时[/code]、[code]qingjia.天数[/code]\n\n\
-[b]2. 运算符[/b]\n\
-算术 [code]+ - * /[/code]　比较 [code]= != > >= < <=[/code]　逻辑 [code]AND OR NOT[/code]\n\
-例：[code](课时S - 参数.基础课时) > 0 AND NOT 聚合.请假超额[/code]\n\
-（注意：不要写 [code]![/code] 取反，请用 [code]NOT[/code]）\n\n\
-[b]3. 空值[/b]\n\
-[code]a ?? b[/code]　a 为空/没取到时改用 b，如 [code]keshi.课时 ?? 0[/code]\n\
-单问号 [code]a ? b[/code] 效果相同。\n\n\
-[b]4. if 判断[/b]\n\
-[code]if 条件 { 成立的结果 } else { 不成立的结果 }[/code]\n\
-例：[code]if 聚合.请假超额 { 0 } else { 课时S * 参数.课时费 }[/code]\n\
-• 多个分支用 [code]else if[/code] 继续接；省略 else 时“不成立”返回 空。\n\
-• 旧 Excel 的 [code]IF(条件, 真, 假)[/code] 已移除，请勿再用。\n\n\
-[b]5. 函数[/b]\n\
-[code]MIN(a,b)[/code] 取较小　[code]MAX(a,b)[/code] 取较大　[code]ABS(x)[/code] 绝对值　[code]ROUND(x,n)[/code] 保留 n 位小数\n\
-例：[code]ROUND(上浮30%, 0)[/code]\n\n\
-[b]6. 对一组多行求汇总（派生 / 聚合内）[/b]\n\
-[code]SUM(列) COUNT(列) AVG(列)[/code] … 如 [code]SUM(qingjia.天数)[/code]\n\
-[code]GROUP_BY(列)[/code] 表示按该列把多行分到“一人一组”。\n\n\
-[b]小提示[/b]\n\
-• 表达式输入框里按 Ctrl+Space 可弹出补全。\n\
+[color=@H@][b]1. 引用名字[/b][/color]\n\
+• 刚算好的字段：直接写名字，如 [color=@C@][code]课时费S + 课时费X[/code][/color]\n\
+• 方案参数：加 [color=@C@][code]参数.[/code][/color] 前缀，如 [color=@C@][code]课时S * 参数.课时费[/code][/color]\n\
+• 聚合指标：加 [color=@C@][code]聚合.[/code][/color] 前缀，如 [color=@C@][code]聚合.请假超额[/code][/color]\n\
+• 表里的列：写 [color=@C@][code]表id.列名[/code][/color]，如 [color=@C@][code]keshi.课时[/code][/color]、[color=@C@][code]qingjia.天数[/code][/color]\n\n\
+[color=@H@][b]2. 运算符[/b][/color]\n\
+算术 [color=@C@][code]+ - * /[/code][/color]　比较 [color=@C@][code]= != > >= < <=[/code][/color]　逻辑 [color=@C@][code]AND OR NOT[/code][/color]\n\
+例：[color=@C@][code](课时S - 参数.基础课时) > 0 AND NOT 聚合.请假超额[/code][/color]\n\
+[color=@W@]注意：不要写 [code]![/code] 取反，请用 [code]NOT[/code][/color]\n\n\
+[color=@H@][b]3. 空值[/b][/color]\n\
+[color=@C@][code]a ?? b[/code][/color]　a 为空/没取到时改用 b，如 [color=@C@][code]keshi.课时 ?? 0[/code][/color]\n\
+单问号 [color=@C@][code]a ? b[/code][/color] 效果相同。\n\n\
+[color=@H@][b]4. if 判断[/b][/color]\n\
+[color=@C@][code]if 条件 { 成立的结果 } else { 不成立的结果 }[/code][/color]\n\
+例：[color=@C@][code]if 聚合.请假超额 { 0 } else { 课时S * 参数.课时费 }[/code][/color]\n\
+• 多个分支用 [color=@C@][code]else if[/code][/color] 继续接；省略 else 时“不成立”返回 空。\n\
+[color=@W@]• 旧 Excel 的 [code]IF(条件, 真, 假)[/code] 已移除，请勿再用。[/color]\n\n\
+[color=@H@][b]5. 函数[/b][/color]\n\
+[color=@C@][code]MIN(a,b)[/code][/color] 取较小　[color=@C@][code]MAX(a,b)[/code][/color] 取较大　[color=@C@][code]ABS(x)[/code][/color] 绝对值　[color=@C@][code]ROUND(x,n)[/code][/color] 保留 n 位小数\n\
+例：[color=@C@][code]ROUND(上浮30%, 0)[/code][/color]\n\n\
+[color=@H@][b]6. 对一组多行求汇总（派生 / 聚合内）[/b][/color]\n\
+[color=@C@][code]SUM(列) COUNT(列) AVG(列)[/code][/color] … 如 [color=@C@][code]SUM(qingjia.天数)[/code][/color]\n\
+[color=@C@][code]GROUP_BY(列)[/code][/color] 表示按该列把多行分到“一人一组”。\n\n\
+[color=@H@][b]小提示[/b][/color]\n\
+• 表达式输入框里按 [color=@C@][code]Ctrl+Space[/code][/color] 可弹出补全。\n\
 • 每页顶部带「？」的按钮，悬停可看该页写法的完整说明。";
+
+/// 渲染帮助正文：把模板里的颜色占位符替换为统一配色。
+fn help_text() -> String {
+    EXPR_HELP_TEMPLATE
+        .replace("@H@", HELP_HEADING_COLOR)
+        .replace("@C@", HELP_CODE_COLOR)
+        .replace("@W@", HELP_WARN_COLOR)
+}
 
 /// 启动：找到 Content 宿主、连好顶栏导航按钮，并进入默认页（运行台）。
 #[allow(clippy::too_many_arguments)]
@@ -227,7 +242,8 @@ pub fn on_show_help(
         return;
     }
     if let Some(text) = help.text {
-        godot.get::<RichTextLabel>(text).set_text(EXPR_HELP_TEXT);
+        let content = help_text();
+        godot.get::<RichTextLabel>(text).set_text(&content);
     }
     // 以主界面内容控件（Content，铺满根窗口）的逻辑尺寸为基准，取 80% 宽高，
     // 避免用根窗口 get_size() 在高 DPI/编辑器内嵌时拿到放大的物理像素。
