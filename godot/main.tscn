@@ -80,7 +80,7 @@ layout_mode = 2
 size_flags_vertical = 3
 custom_minimum_size = Vector2(520, 360)
 bbcode_enabled = true
-scroll_following = true
+scroll_following = false
 
 [node name="HelpButtons" type="HBoxContainer" parent="HelpWindow/HelpMargin/HelpVBox"]
 layout_mode = 2
